@@ -1,0 +1,18 @@
+[gd_scene format=3 uid="uid://bbbijw1ipka4e"]
+
+[ext_resource type="Script" uid="uid://dmitkeei1wnd3" path="res://addons/godot_weave_rd_plugin/button_test.gd" id="1_uaupt"]
+
+[node name="WeaveRdScene" type="CenterContainer" unique_id=1099809719]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_vertical = 3
+
+[node name="Button" type="Button" parent="." unique_id=854655675]
+layout_mode = 2
+text = "print Hello"
+script = ExtResource("1_uaupt")
+
+[connection signal="pressed" from="Button" to="Button" method="_on_print_hello_pressed"]
