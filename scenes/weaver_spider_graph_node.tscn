@@ -1,0 +1,77 @@
+[gd_scene format=3 uid="uid://cxbcv5ej1wl8m"]
+
+[ext_resource type="Script" uid="uid://cmbv5v0im3ony" path="res://addons/godot_weave_rd_plugin/core/weaver_web_graph_node.gd" id="1_jt66y"]
+[ext_resource type="Script" uid="uid://dsdfesopqf1k4" path="res://addons/godot_weave_rd_plugin/utils/on_click_popup.gd" id="2_4jgss"]
+[ext_resource type="Script" uid="uid://cvn78rexdkjii" path="res://addons/godot_weave_rd_plugin/utils/popup_window.gd" id="3_4lmvr"]
+
+[node name="WeaverSpiderGraphNode" type="GraphNode" unique_id=2067889368]
+offset_right = 269.0
+offset_bottom = 252.0
+title = "Web Node"
+slot/0/left_enabled = true
+slot/0/left_type = 0
+slot/0/left_color = Color(1, 1, 1, 1)
+slot/0/left_icon = null
+slot/0/right_enabled = false
+slot/0/right_type = 0
+slot/0/right_color = Color(1, 1, 1, 1)
+slot/0/right_icon = null
+slot/0/draw_stylebox = true
+slot/1/left_enabled = false
+slot/1/left_type = 0
+slot/1/left_color = Color(1, 1, 1, 1)
+slot/1/left_icon = null
+slot/1/right_enabled = false
+slot/1/right_type = 0
+slot/1/right_color = Color(1, 1, 1, 1)
+slot/1/right_icon = null
+slot/1/draw_stylebox = true
+slot/2/left_enabled = false
+slot/2/left_type = 0
+slot/2/left_color = Color(1, 1, 1, 1)
+slot/2/left_icon = null
+slot/2/right_enabled = true
+slot/2/right_type = 0
+slot/2/right_color = Color(1, 1, 1, 1)
+slot/2/right_icon = null
+slot/2/draw_stylebox = true
+script = ExtResource("1_jt66y")
+
+[node name="InLabel" type="Label" parent="." unique_id=283279825]
+layout_mode = 2
+text = "INPUT EXAMPLE"
+
+[node name="PlaceholderPanel" type="Panel" parent="." unique_id=823704912 node_paths=PackedStringArray("popup")]
+layout_mode = 2
+size_flags_vertical = 3
+script = ExtResource("2_4jgss")
+popup = NodePath("../GraphPopup")
+
+[node name="PlaceholderText" type="Label" parent="PlaceholderPanel" unique_id=1078700624]
+layout_mode = 0
+offset_left = 16.0
+offset_top = 50.0
+offset_right = 223.0
+offset_bottom = 99.0
+text = "TODO: ADD GRAPH IMAGE "
+
+[node name="OutLabel" type="Label" parent="." unique_id=597071414]
+layout_mode = 2
+text = "OUTPUT EXAMPLE"
+horizontal_alignment = 2
+
+[node name="GraphPopup" type="PopupPanel" parent="." unique_id=741488350]
+transparent_bg = false
+oversampling_override = 1.0
+size = Vector2i(627, 496)
+transparent = false
+script = ExtResource("3_4lmvr")
+
+[node name="GraphEdit" type="GraphEdit" parent="GraphPopup" unique_id=1414963853]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 623.0
+offset_bottom = 492.0
+size_flags_vertical = 3
+minimap_enabled = false
+show_menu = false

@@ -1,7 +1,7 @@
 @tool
 extends EditorPlugin
 
-const MainPanel = preload("res://addons/godot_weave_rd_plugin/weave_rd_scene.tscn")
+const MainPanel = preload("res://addons/godot_weave_rd_plugin/scenes/weave_rd_scene.tscn")
 
 var main_panel_instance
 
