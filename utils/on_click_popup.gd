@@ -1,6 +1,6 @@
 @tool
 extends Control
-#TODO: add export template
+class_name GraphPopupTrigger
 
 @export var popup: Popup
 

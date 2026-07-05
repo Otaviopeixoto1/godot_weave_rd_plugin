@@ -1,6 +1,6 @@
 @tool
 extends GraphNode
-
+class_name WeaverViewGraphNode
 
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:

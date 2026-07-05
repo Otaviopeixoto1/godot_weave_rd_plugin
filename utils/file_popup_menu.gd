@@ -1,7 +1,7 @@
 @tool
 extends PopupMenu
 
-@export var webFileDialog: FileDialog
+@export var webFileDialog: WeaverFileDialog
 
 func _ready():
 	id_pressed.connect(_on_id_pressed)

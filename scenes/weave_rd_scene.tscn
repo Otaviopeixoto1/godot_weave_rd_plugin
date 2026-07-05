@@ -1,8 +1,9 @@
 [gd_scene format=3 uid="uid://bbbijw1ipka4e"]
 
 [ext_resource type="Script" uid="uid://rp7pxg5vrvv1" path="res://addons/godot_weave_rd_plugin/utils/file_popup_menu.gd" id="1_1mhcw"]
-[ext_resource type="Script" uid="uid://2wvjpax5u7q3" path="res://addons/godot_weave_rd_plugin/core/weaver_graph.gd" id="1_5plpa"]
-[ext_resource type="Script" uid="uid://c5eyohf5eftj4" path="res://addons/godot_weave_rd_plugin/utils/web_file_dialog.gd" id="4_8b68g"]
+[ext_resource type="Script" uid="uid://2wvjpax5u7q3" path="res://addons/godot_weave_rd_plugin/core/weaver_web_graph.gd" id="1_5plpa"]
+[ext_resource type="Script" uid="uid://bt8irdgasdkci" path="res://addons/godot_weave_rd_plugin/core/weaver_editor_scene.gd" id="1_wrn4v"]
+[ext_resource type="Script" uid="uid://c5eyohf5eftj4" path="res://addons/godot_weave_rd_plugin/utils/weaver_file_dialog.gd" id="4_8b68g"]
 
 [node name="WeaveRdScene" type="MarginContainer" unique_id=1904834985]
 anchors_preset = 15
@@ -12,6 +13,7 @@ grow_horizontal = 2
 grow_vertical = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+script = ExtResource("1_wrn4v")
 
 [node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=447036420]
 layout_mode = 2
@@ -30,74 +32,26 @@ item_0/id = 0
 item_1/text = "Open Web..."
 item_1/id = 1
 script = ExtResource("1_1mhcw")
-webFileDialog = NodePath("../../FileDialog")
+webFileDialog = NodePath("../../WeaverWebGraph/WeaverFileDialog")
 
-[node name="WebView" type="GraphEdit" parent="VBoxContainer" unique_id=1895852099 node_paths=PackedStringArray("contextMenuPopup")]
+[node name="WeaverWebGraph" type="GraphEdit" parent="VBoxContainer" unique_id=1895852099]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-scroll_offset = Vector2(0, -172)
 script = ExtResource("1_5plpa")
-contextMenuPopup = NodePath("WeaverContextMenu")
 
-[node name="WeaverContextMenu" type="PopupMenu" parent="VBoxContainer/WebView" unique_id=1988451185]
-oversampling_override = 1.0
-size = Vector2i(145, 100)
-item_count = 2
-item_0/text = "Create Spider"
-item_0/id = 0
-item_1/text = "Create Node"
-item_1/id = 1
-
-[node name="GraphNode2" type="GraphNode" parent="VBoxContainer/WebView" unique_id=1274416911]
-layout_mode = 0
-offset_left = 80.0
-offset_top = 223.0
-offset_right = 191.0
-offset_bottom = 301.0
-mouse_filter = 1
-position_offset = Vector2(80, 51)
-title = "test2"
-slot/0/left_enabled = false
-slot/0/left_type = 0
-slot/0/left_color = Color(1, 1, 1, 1)
-slot/0/left_icon = null
-slot/0/right_enabled = true
-slot/0/right_type = 0
-slot/0/right_color = Color(1, 1, 1, 1)
-slot/0/right_icon = null
-slot/0/draw_stylebox = true
-
-[node name="Label" type="Label" parent="VBoxContainer/WebView/GraphNode2" unique_id=357036408]
-layout_mode = 2
-text = "ABOBA"
-horizontal_alignment = 2
-
-[node name="GraphNode" type="GraphNode" parent="VBoxContainer/WebView" unique_id=102504298]
-layout_mode = 0
-offset_left = 255.0
-offset_top = 230.0
-offset_right = 399.0
-offset_bottom = 308.0
-mouse_filter = 1
-position_offset = Vector2(255, 58)
-title = "test"
-slot/0/left_enabled = true
-slot/0/left_type = 0
-slot/0/left_color = Color(1, 1, 1, 1)
-slot/0/left_icon = null
-slot/0/right_enabled = false
-slot/0/right_type = 0
-slot/0/right_color = Color(1, 1, 1, 1)
-slot/0/right_icon = null
-slot/0/draw_stylebox = true
-
-[node name="Label" type="Label" parent="VBoxContainer/WebView/GraphNode" unique_id=1812693256]
-layout_mode = 2
-text = "BOB"
-
-[node name="FileDialog" type="FileDialog" parent="VBoxContainer" unique_id=1260475232]
+[node name="WeaverFileDialog" type="FileDialog" parent="VBoxContainer/WeaverWebGraph" unique_id=1260475232]
 oversampling_override = 1.0
 title = "Open a File"
 file_mode = 0
 filters = PackedStringArray("*.tres")
 script = ExtResource("4_8b68g")
+
+[node name="WeaverContextMenu" type="PopupMenu" parent="VBoxContainer/WeaverWebGraph" unique_id=1988451185]
+oversampling_override = 1.0
+size = Vector2i(167, 100)
+item_count = 2
+item_0/text = "Create View"
+item_0/id = 0
+item_1/text = "Create Resource"
+item_1/id = 1
