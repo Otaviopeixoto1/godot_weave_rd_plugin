@@ -1,0 +1,124 @@
+@tool
+extends PanelContainer
+class_name WeaverProtoCard
+
+#
+# A WeaverWebNode card. Drag the card to move it to another stage column (or lane/view).
+# Drop a resource chip on it to bind the node to that resource.
+#
+
+enum DropState { NONE, VALID, INVALID }
+
+var canvas: WeaverProtoCanvas
+var column: WeaverProtoColumn
+var node_id: int
+
+var _style: StyleBoxFlat
+
+
+func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: int) -> WeaverProtoCard:
+	canvas = p_canvas
+	column = p_column
+	node_id = p_node_id
+	mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var model := canvas.model
+	_style = WeaverProtoStyle.box(WeaverProtoStyle.CARD_BG, WeaverProtoStyle.CARD_BORDER)
+	add_theme_stylebox_override("panel", _style)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	add_child(box)
+
+	var title_row := HBoxContainer.new()
+	box.add_child(title_row)
+	var title := Label.new()
+	title.text = "#%d  %s" % [model.lane_order_index(node_id), model.node_name(node_id)]
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.clip_text = true
+	title.tooltip_text = "Drag to move this node to another stage, lane, or view."
+	title_row.add_child(title)
+	var delete_button := WeaverProtoStyle.small_button("×", "Delete node")
+	delete_button.pressed.connect(func(): model.remove_node(node_id))
+	title_row.add_child(delete_button)
+
+	var owns := HFlowContainer.new()
+	owns.add_theme_constant_override("h_separation", 4)
+	owns.add_theme_constant_override("v_separation", 4)
+	box.add_child(owns)
+	for resource in model.nodes[node_id].resources:
+		owns.add_child(WeaverProtoChip.new().setup(canvas, self, node_id, resource))
+	var add_button := WeaverProtoStyle.small_button("+ res", "Add a placeholder resource")
+	add_button.pressed.connect(func(): model.add_resource(node_id))
+	owns.add_child(add_button)
+
+	var reads := model.bindings_of_consumer(node_id)
+	if not reads.is_empty():
+		var reads_label := Label.new()
+		reads_label.text = "reads"
+		reads_label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+		box.add_child(reads_label)
+		var reads_box := HFlowContainer.new()
+		reads_box.add_theme_constant_override("h_separation", 4)
+		reads_box.add_theme_constant_override("v_separation", 4)
+		box.add_child(reads_box)
+		for b in reads:
+			reads_box.add_child(WeaverProtoChip.new().setup(canvas, self, b.producer, b.resource, node_id))
+
+	canvas.register_card(self)
+	return self
+
+
+func set_drop_state(state: DropState) -> void:
+	match state:
+		DropState.VALID:
+			_style.border_color = WeaverProtoStyle.VALID
+			_style.set_border_width_all(2)
+			modulate = Color.WHITE
+		DropState.INVALID:
+			_style.border_color = WeaverProtoStyle.CARD_BORDER
+			_style.set_border_width_all(1)
+			modulate = Color(1, 1, 1, 0.4)
+		_:
+			_style.border_color = WeaverProtoStyle.CARD_BORDER
+			_style.set_border_width_all(1)
+			modulate = Color.WHITE
+
+
+func _get_drag_data(_at_position: Vector2) -> Variant:
+	var preview := Label.new()
+	preview.text = canvas.model.node_name(node_id)
+	set_drag_preview(preview)
+	return { "kind": "weave_card", "node": node_id }
+
+func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
+	return can_accept(data)
+
+func _drop_data(_at_position: Vector2, data: Variant) -> void:
+	accept(data)
+
+
+func can_accept(data: Variant) -> bool:
+	if not data is Dictionary:
+		return false
+	match data.get("kind"):
+		"weave_chip":
+			var model := canvas.model
+			var error := model.bind_error(data.producer, node_id)
+			if error.is_empty() and model.is_bound(data.producer, data.resource, node_id):
+				error = "Already bound."
+			if error.is_empty():
+				canvas.show_status("Bind %s.%s to \"%s\"" % [model.node_name(data.producer), data.resource, model.node_name(node_id)], true)
+			else:
+				canvas.show_status("Can't bind: " + error, false)
+			return error.is_empty()
+		"weave_card":
+			return column.can_accept(data)
+	return false
+
+func accept(data: Variant) -> void:
+	match data.get("kind"):
+		"weave_chip":
+			canvas.model.bind(data.producer, data.resource, node_id)
+		"weave_card":
+			column.accept(data)

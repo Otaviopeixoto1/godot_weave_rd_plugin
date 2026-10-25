@@ -2,8 +2,10 @@
 extends EditorPlugin
 
 const MainPanel = preload("res://addons/godot_weave_rd_plugin/scenes/weave_rd_scene.tscn")
+# Shows the resource-binding prototype (prototype/) instead of the WeaverWeb graph scene.
+const USE_PROTOTYPE := true
 
-var main_panel_instance: WeaverEditorScene
+var main_panel_instance: Control
 
 func _enable_plugin() -> void:
 	# Add autoloads here.
@@ -16,8 +18,11 @@ func _disable_plugin() -> void:
 
 
 func _enter_tree() -> void:
-	main_panel_instance = MainPanel.instantiate() as WeaverEditorScene
-	main_panel_instance.setup_for_plugin()
+	if USE_PROTOTYPE:
+		main_panel_instance = WeaverProtoPanel.new()
+	else:
+		main_panel_instance = MainPanel.instantiate() as WeaverEditorScene
+	main_panel_instance.call("setup_for_plugin")
 	
 	# Add the main panel to the editor's main viewport.
 	EditorInterface.get_editor_main_screen().add_child(main_panel_instance)
@@ -26,7 +31,7 @@ func _enter_tree() -> void:
 
 func _exit_tree() -> void:
 	if main_panel_instance:
-		main_panel_instance.cleanup_plugin()
+		main_panel_instance.call("cleanup_plugin")
 		main_panel_instance.queue_free()
 
 func _has_main_screen():
