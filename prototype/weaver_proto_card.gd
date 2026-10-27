@@ -41,17 +41,25 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	var delete_button := WeaverProtoStyle.small_button("×", "Delete node")
 	delete_button.pressed.connect(func(): model.remove_node(node_id))
 	title_row.add_child(delete_button)
+	
 
+	
+	# TODO: Make this the "Creates" Section. Add labels
 	var owns := HFlowContainer.new()
 	owns.add_theme_constant_override("h_separation", 4)
 	owns.add_theme_constant_override("v_separation", 4)
 	box.add_child(owns)
 	for resource in model.nodes[node_id].resources:
 		owns.add_child(WeaverProtoChip.new().setup(canvas, self, node_id, resource))
+	
 	var add_button := WeaverProtoStyle.small_button("+ res", "Add a placeholder resource")
 	add_button.pressed.connect(func(): model.add_resource(node_id))
 	owns.add_child(add_button)
-
+	
+	#
+	# TODO: ADD a "Writes" Section
+	#
+	
 	var reads := model.bindings_of_consumer(node_id)
 	if not reads.is_empty():
 		var reads_label := Label.new()
@@ -64,7 +72,8 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 		box.add_child(reads_box)
 		for b in reads:
 			reads_box.add_child(WeaverProtoChip.new().setup(canvas, self, b.producer, b.resource, node_id))
-
+	
+	
 	canvas.register_card(self)
 	return self
 

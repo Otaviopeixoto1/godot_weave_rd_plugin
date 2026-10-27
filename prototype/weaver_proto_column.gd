@@ -30,8 +30,8 @@ func setup(p_canvas: WeaverProtoCanvas, p_view_id: int, p_lane_id: int, p_stage:
 	var header := HBoxContainer.new()
 	box.add_child(header)
 	var label := Label.new()
-	label.text = WeaverProtoModel.STAGE_SHORT[stage]
-	label.tooltip_text = WeaverProtoModel.STAGE_NAMES[stage]
+	label.text = WeaverProtoModel.STAGE_NAMES[stage]
+	#label.tooltip_text = WeaverProtoModel.STAGE_NAMES[stage]
 	label.mouse_filter = Control.MOUSE_FILTER_PASS
 	label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
