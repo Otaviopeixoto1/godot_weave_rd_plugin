@@ -16,6 +16,7 @@ const DARK_TEXT := Color(0.08, 0.08, 0.1)
 const MUTED_TEXT := Color(0.6, 0.62, 0.68)
 const VIEW_SLOT := Color(0.5, 0.47, 0.87)
 const CAMERA_SLOT := Color(0.11, 0.62, 0.46)
+const ARROW := Color(0.72, 0.76, 0.88, 0.95)
 
 
 static func editor_icon(icon_name: String) -> Texture2D:

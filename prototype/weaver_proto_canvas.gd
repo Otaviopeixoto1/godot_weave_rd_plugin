@@ -3,10 +3,15 @@ extends Control
 class_name WeaverProtoCanvas
 
 #
-# Main canvas: views left to right in render order, lanes (spiders) stacked inside each view, and
-# one column per stage inside each lane. Order is given by position only. Resource links are not
-# drawn at rest: hovering a chip (or a matrix row) draws its links on a transparent overlay.
+# Main canvas: views left to right in render order, lanes (WeaverSpiders) stacked inside each view, and
+# one column per stage inside each lane (WeaverSpider). Short arrows show the order: between views, between the stage
+# columns of a lane (WeaverSpider) and between the cards of a column. Resource links are not drawn at rest: hovering a
+# chip (or a matrix row) draws its links on a transparent overlay.
 #
+
+# Where the RIGHT arrows sit from the top, so they line up with the stage names / view headers.
+const COLUMN_ARROW_Y := 18.0
+const VIEW_ARROW_Y := 22.0
 
 signal highlight_changed(producer: int, resource: String)
 signal status_changed(text: String, ok: bool)
@@ -29,6 +34,8 @@ var _rename_dialog: ConfirmationDialog
 var _rename_edit: LineEdit
 var _renaming: Resource
 var _saved_webs: Array = [] # WeaverSlotLibrary.collect_web_slots(), refreshed on rebuild
+var _confirm_dialog: ConfirmationDialog
+var _confirm_action: Callable
 
 
 func _init() -> void:
@@ -47,12 +54,16 @@ func _init() -> void:
 	_rename_edit.text_changed.connect(func(t): _rename_dialog.get_ok_button().disabled = t.strip_edges().is_empty())
 	add_child(_rename_dialog)
 
+	_confirm_dialog = ConfirmationDialog.new()
+	_confirm_dialog.confirmed.connect(func(): _confirm_action.call())
+	add_child(_confirm_dialog)
+
 	_scroll = ScrollContainer.new()
 	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_scroll)
 
 	_views_box = HBoxContainer.new()
-	_views_box.add_theme_constant_override("separation", 16)
+	_views_box.add_theme_constant_override("separation", 4)
 	_scroll.add_child(_views_box)
 
 	_overlay = Control.new()
@@ -82,11 +93,14 @@ func rebuild() -> void:
 		child.queue_free()
 
 	for vi in model.views.size():
+		if vi > 0:
+			_views_box.add_child(WeaverProtoArrow.new().setup(WeaverProtoArrow.Direction.RIGHT, "Renders after the view on the left.", VIEW_ARROW_Y))
 		_views_box.add_child(_build_view(model.views[vi], vi))
 
 	if model.views.is_empty():
 		var hint := Label.new()
-		hint.text = "No views yet. Add one with + View."
+		hint.text = "No views yet. Add one with + View." if model.has_web() else "No web open. Open or create a WeaverWeb with the Web menu above."
+		hint.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
 		_views_box.add_child(hint)
 	_overlay.queue_redraw()
 
@@ -122,6 +136,18 @@ func begin_chip_drag(producer: int, resource: String) -> void:
 
 func show_status(text: String, ok: bool) -> void:
 	status_changed.emit(text, ok)
+
+# Opens a node's resource (WeaverWebNode / CompositorEffect) in the Inspector.
+func inspect_node(node_id: int) -> void:
+	var res := model.node_resource(node_id)
+	if res != null:
+		EditorInterface.edit_resource(res)
+
+func _confirm(text: String, ok_text: String, action: Callable) -> void:
+	_confirm_action = action
+	_confirm_dialog.dialog_text = text
+	_confirm_dialog.ok_button_text = ok_text
+	_confirm_dialog.popup_centered()
 
 
 #
@@ -171,7 +197,8 @@ func _on_rename_confirmed() -> void:
 	_renaming = null
 	model.slot_renamed()
 
-# Slots the model already uses, so in-memory (demo) slots show up in the picker too.
+# Slots the web already uses, so slots that aren't in the slot directory (embedded in the web or saved elsewhere)
+# show up in the picker too.
 func _model_slots(view_slots: bool) -> Array:
 	var slots: Array = []
 	for view in model.views:
@@ -215,9 +242,12 @@ func _build_view(view: Dictionary, view_index: int) -> Control:
 	title.change_requested.connect(func(): pick_view_slot(title, view_id))
 	title.rename_requested.connect(func(): rename_slot(view.slot))
 	header.add_child(title)
-	var add_lane := WeaverProtoStyle.small_button("+ Lane", "Add a lane: pick or create its camera slot")
+	var add_lane := WeaverProtoStyle.small_button("+ Lane", "Add a lane (WeaverSpider): pick or create its camera slot")
 	add_lane.pressed.connect(func(): pick_lane_slot(add_lane, view_id))
 	header.add_child(add_lane)
+	var remove := WeaverProtoStyle.small_button("×", "Remove this view from the web")
+	remove.pressed.connect(func(): _confirm("Remove view \"%s\" and all its lanes and nodes from the web?" % WeaverProtoModel.slot_name(view.slot), "Remove", model.remove_view.bind(view_id)))
+	header.add_child(remove)
 
 	var lanes: Array = view.lanes
 	if lanes.is_empty():
@@ -257,11 +287,17 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 		var show_button := WeaverProtoStyle.small_button("Show in matrix", "Use this lane for the view's frame path in the matrix")
 		show_button.pressed.connect(func(): model.set_path_lane(view.id, lane_index))
 		header.add_child(show_button)
+	var remove := WeaverProtoStyle.small_button("×", "Remove this lane (WeaverSpider) from the view")
+	remove.pressed.connect(func(): _confirm("Remove lane \"%s\" and all its nodes from the view?" % WeaverProtoModel.slot_name(lane.slot), "Remove", model.remove_lane.bind(view_id, lane_id)))
+	header.add_child(remove)
 
+	# Stage columns left to right in run order, with a short arrow between each pair.
 	var columns := HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 6)
+	columns.add_theme_constant_override("separation", 2)
 	box.add_child(columns)
 	for stage in WeaverProtoModel.STAGE_COUNT:
+		if stage > 0:
+			columns.add_child(WeaverProtoArrow.new().setup(WeaverProtoArrow.Direction.RIGHT, "Runs after the stage on the left.", COLUMN_ARROW_Y))
 		columns.add_child(WeaverProtoColumn.new().setup(self, view.id, lane.id, stage))
 	return panel
 

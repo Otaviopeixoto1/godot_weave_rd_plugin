@@ -3,7 +3,8 @@ extends PanelContainer
 class_name WeaverProtoCard
 
 #
-# A WeaverWebNode card. Drag the card to move it to another stage column (or lane/view).
+# A card for one entry of a WeaverSpider (a WeaverWebNode or a plain CompositorEffect). Drag the card to move it to
+# another stage column (or lane (WeaverSpider)/view). Double-click or the edit button opens the resource in the Inspector.
 # Drop a resource chip on it to bind the node to that resource.
 #
 
@@ -36,9 +37,21 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	title.text = "#%d  %s" % [model.lane_order_index(node_id), model.node_name(node_id)]
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.clip_text = true
-	title.tooltip_text = "Drag to move this node to another stage, lane, or view."
+	title.tooltip_text = "%s\nDrag to move this node to another stage, lane, or view. Double-click to edit it in the Inspector." % model.node_resource(node_id).get_class()
+	title.mouse_filter = Control.MOUSE_FILTER_PASS
 	title_row.add_child(title)
-	var delete_button := WeaverProtoStyle.small_button("×", "Delete node")
+	if model.is_plain_effect(node_id):
+		var tag := Label.new()
+		tag.text = "effect"
+		tag.tooltip_text = "Plain CompositorEffect: runs as is, it has no setup/cleanup hooks."
+		tag.mouse_filter = Control.MOUSE_FILTER_PASS
+		tag.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+		title_row.add_child(tag)
+	var edit_button := WeaverProtoStyle.small_button("", "Edit in the Inspector")
+	edit_button.icon = WeaverProtoStyle.editor_icon("Edit")
+	edit_button.pressed.connect(func(): canvas.inspect_node(node_id))
+	title_row.add_child(edit_button)
+	var delete_button := WeaverProtoStyle.small_button("×", "Remove the node from the WeaverSpider")
 	delete_button.pressed.connect(func(): model.remove_node(node_id))
 	title_row.add_child(delete_button)
 	
@@ -52,7 +65,7 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	for resource in model.nodes[node_id].resources:
 		owns.add_child(WeaverProtoChip.new().setup(canvas, self, node_id, resource))
 	
-	var add_button := WeaverProtoStyle.small_button("+ res", "Add a placeholder resource")
+	var add_button := WeaverProtoStyle.small_button("+ res", "Add a frame resource (prototype: kept in memory, not saved in the web)")
 	add_button.pressed.connect(func(): model.add_resource(node_id))
 	owns.add_child(add_button)
 	
@@ -92,6 +105,13 @@ func set_drop_state(state: DropState) -> void:
 			_style.border_color = WeaverProtoStyle.CARD_BORDER
 			_style.set_border_width_all(1)
 			modulate = Color.WHITE
+
+
+func _gui_input(event: InputEvent) -> void:
+	var mb := event as InputEventMouseButton
+	if mb != null and mb.pressed and mb.double_click and mb.button_index == MOUSE_BUTTON_LEFT:
+		canvas.inspect_node(node_id)
+		accept_event()
 
 
 func _get_drag_data(_at_position: Vector2) -> Variant:

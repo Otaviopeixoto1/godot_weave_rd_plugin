@@ -40,12 +40,18 @@ func setup(p_canvas: WeaverProtoCanvas, p_view_id: int, p_lane_id: int, p_stage:
 	add_button.pressed.connect(func(): canvas.model.add_node(view_id, lane_id, stage))
 	header.add_child(add_button)
 
+	# Cards top to bottom in run order, with a short arrow between each pair.
 	_list = VBoxContainer.new()
-	_list.add_theme_constant_override("separation", 6)
+	_list.add_theme_constant_override("separation", 2)
 	box.add_child(_list)
 	var lane := canvas.model.get_lane(view_id, lane_id)
-	for node_id in lane.columns[stage]:
-		_list.add_child(WeaverProtoCard.new().setup(canvas, self, node_id))
+	var column: Array = lane.columns[stage]
+	for i in column.size():
+		if i > 0:
+			var arrow := WeaverProtoArrow.new().setup(WeaverProtoArrow.Direction.DOWN, "Runs after the node above.")
+			arrow.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			_list.add_child(arrow)
+		_list.add_child(WeaverProtoCard.new().setup(canvas, self, column[i]))
 	return self
 
 
@@ -69,6 +75,8 @@ func accept(data: Variant) -> void:
 func _insert_index(global_y: float) -> int:
 	var index := 0
 	for card in _list.get_children():
+		if not card is WeaverProtoCard:
+			continue
 		var rect := (card as Control).get_global_rect()
 		if global_y < rect.get_center().y:
 			return index

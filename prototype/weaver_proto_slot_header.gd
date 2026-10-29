@@ -8,7 +8,7 @@ class_name WeaverProtoSlotHeader
 # Change slot / Rename / Show in FileSystem.
 #
 # States: no slot (red, "Assign"), duplicate (red), missing file (broken link), shared with saved webs (link icon),
-# unsaved (in-memory demo slot, muted).
+# unsaved (embedded in the web or never saved, muted).
 #
 
 signal change_requested
@@ -65,7 +65,7 @@ func setup(p_kind: int, p_slot: Resource, error: String, webs: PackedStringArray
 		if slot.resource_path.is_empty():
 			label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
 			label.text += "  (unsaved)"
-			tips.append("Demo slot kept in memory. Use Change slot to pick or create a slot file.")
+			tips.append("Not saved to its own file, so scenes can't share it. Use Change slot to pick or create a slot file.")
 		if not webs.is_empty():
 			var link := _icon("Instance")
 			link.tooltip_text = "Shared with: " + ", ".join(webs)

@@ -43,6 +43,17 @@ func _make_visible(visible):
 		main_panel_instance.visible = visible
 
 
+# Ctrl+S / Save All also save the web open in the prototype.
+func _save_external_data() -> void:
+	if main_panel_instance is WeaverProtoPanel and main_panel_instance.has_unsaved_web():
+		main_panel_instance.save_web()
+
+# Asked when the editor quits (for_scene is empty): lets the user save an edited web first.
+func _get_unsaved_status(for_scene: String) -> String:
+	if for_scene.is_empty() and main_panel_instance is WeaverProtoPanel and main_panel_instance.has_unsaved_web():
+		return "Save changes to %s before closing?" % main_panel_instance.model.web_name()
+	return ""
+
 
 func _get_plugin_name():
 	return "WeaveRD"
