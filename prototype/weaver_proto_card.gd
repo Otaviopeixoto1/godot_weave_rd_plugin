@@ -4,11 +4,13 @@ class_name WeaverProtoCard
 
 #
 # A card for one entry of a WeaverSpider (a WeaverWebNode or a plain CompositorEffect). Drag the card to move it to
-# another stage column (or lane (WeaverSpider)/view). Double-click or the edit button opens the resource in the Inspector.
+# another stage column (or lane (WeaverSpider)/view). Double-click or the edit button opens the resource in the Inspector,
+# the script button attaches / edits its script or changes its class (WeaverProtoNodeScripts).
 # Drop a resource chip on it to bind the node to that resource.
 #
 
 enum DropState { NONE, VALID, INVALID }
+enum ScriptMenu { EDIT, ATTACH, DETACH, CHANGE_CLASS }
 
 var canvas: WeaverProtoCanvas
 var column: WeaverProtoColumn
@@ -47,6 +49,7 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 		tag.mouse_filter = Control.MOUSE_FILTER_PASS
 		tag.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
 		title_row.add_child(tag)
+	title_row.add_child(_make_script_button())
 	var edit_button := WeaverProtoStyle.small_button("", "Edit in the Inspector")
 	edit_button.icon = WeaverProtoStyle.editor_icon("Edit")
 	edit_button.pressed.connect(func(): canvas.inspect_node(node_id))
@@ -89,6 +92,41 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	
 	canvas.register_card(self)
 	return self
+
+
+# Script menu: attach a new or existing script (WeaverWebNode-based), edit / detach it, or change the node's class.
+# The icon shows whether a script is attached.
+func _make_script_button() -> MenuButton:
+	var res := canvas.model.node_resource(node_id)
+	var script := res.get_script() as Script
+	var button := MenuButton.new()
+	button.flat = true
+	button.focus_mode = Control.FOCUS_NONE
+	button.icon = WeaverProtoStyle.editor_icon("Script" if script != null else "ScriptCreate")
+	if script != null:
+		button.tooltip_text = "Script: %s" % (script.resource_path if not script.resource_path.is_empty() else "built-in")
+	else:
+		button.tooltip_text = "Attach a script to customize the rendering (_setup, _render, _cleanup)."
+
+	var popup := button.get_popup()
+	var scripts := canvas.node_scripts
+	if script != null:
+		popup.add_icon_item(WeaverProtoStyle.editor_icon("Script"), "Edit Script", ScriptMenu.EDIT)
+		popup.add_icon_item(WeaverProtoStyle.editor_icon("ScriptCreate"), "Attach Another Script...", ScriptMenu.ATTACH)
+		popup.add_icon_item(WeaverProtoStyle.editor_icon("ScriptRemove"), "Detach Script", ScriptMenu.DETACH)
+	else:
+		popup.add_icon_item(WeaverProtoStyle.editor_icon("ScriptCreate"), "Attach Script...", ScriptMenu.ATTACH)
+	if res is WeaverWebNode:
+		popup.add_separator()
+		popup.add_icon_item(WeaverProtoStyle.editor_icon("RotateLeft"), "Change Class...", ScriptMenu.CHANGE_CLASS)
+	popup.id_pressed.connect(func(id: int):
+		match id:
+			ScriptMenu.EDIT: scripts.edit_script(node_id)
+			ScriptMenu.ATTACH: scripts.attach_script(node_id)
+			ScriptMenu.DETACH: scripts.detach_script(node_id)
+			ScriptMenu.CHANGE_CLASS: scripts.change_class(node_id)
+	)
+	return button
 
 
 func set_drop_state(state: DropState) -> void:

@@ -205,14 +205,21 @@ func set_lane_slot(view_id: int, lane_id: int, slot: WeaverCameraSlot) -> void:
 func slot_renamed() -> void:
 	_notify()
 
-# Adds a new WeaverWebNode at the end of a stage column.
-func add_node(view_id: int, lane_id: int, stage: int, node_name_: String = "") -> int:
+# Adds a node at the end of a stage column. type_name is WeaverWebNode (default), a native class derived from it or a
+# script class (class_name) extending it. Plain WeaverWebNodes get a "Pass N" name; other types show their class name.
+func add_node(view_id: int, lane_id: int, stage: int, node_name_: String = "", type_name: String = "WeaverWebNode") -> int:
 	var lane := get_lane(view_id, lane_id)
 	if lane.is_empty():
 		return -1
-	var res := WeaverWebNode.new()
+	var res := instantiate_node_type(type_name)
+	if res == null:
+		push_error("\"%s\" is not a WeaverWebNode type." % type_name)
+		return -1
 	res.stage = stage
-	res.resource_name = node_name_ if not node_name_.is_empty() else _unique_node_name()
+	if not node_name_.is_empty():
+		res.resource_name = node_name_
+	elif type_name == "WeaverWebNode":
+		res.resource_name = _unique_node_name()
 	var id := _id_for(res)
 	nodes[id] = { "id": id, "resource": res, "resources": [] }
 	(lane.columns[stage] as Array).append(id)
@@ -234,6 +241,54 @@ func rename_node(node_id: int, new_name: String) -> void:
 		return
 	(node.resource as Resource).resource_name = new_name.strip_edges()
 	_edited()
+
+# Attaches a script to a node's resource, or detaches it with null. Returns "" or why the script can't be used.
+# The script must extend the resource's native class (WeaverWebNode, or CompositorEffect for plain effects).
+func set_node_script(node_id: int, script: Script) -> String:
+	var res := node_resource(node_id)
+	if res == null:
+		return "Unknown node."
+	if script != null and not ClassDB.is_parent_class(script.get_instance_base_type(), res.get_class()):
+		return "%s extends %s, not %s." % [script.resource_path.get_file(), script.get_instance_base_type(), res.get_class()]
+	res.set_script(script)
+	_edited()
+	return ""
+
+# Replaces a node's resource with a new one of another WeaverWebNode type (see add_node), keeping its name, stage and
+# flags. The node keeps its id, so its frame resources and bindings stay. Returns "" or why it can't.
+func change_node_type(node_id: int, type_name: String) -> String:
+	var node: Dictionary = nodes.get(node_id, {})
+	var old := node_resource(node_id) as WeaverWebNode
+	if old == null:
+		return "Only WeaverWebNodes can change their type."
+	var res := instantiate_node_type(type_name)
+	if res == null:
+		return "\"%s\" is not a WeaverWebNode type." % type_name
+	for property in ["resource_name", "enabled", "stage", "access_resolved_color", "access_resolved_depth", "needs_motion_vectors", "needs_normal_roughness", "needs_separate_specular"]:
+		res.set(property, old.get(property))
+	_ids.erase(old)
+	_ids[res] = node_id
+	node.resource = res
+	_edited()
+	return ""
+
+# A new resource of a WeaverWebNode type: a native class (WeaverWebNode or derived) or a global script class extending
+# one. Script classes are built as their native base with the script attached, so no script code runs in the editor
+# unless the script is @tool. Returns null for anything else.
+static func instantiate_node_type(type_name: String) -> WeaverWebNode:
+	if ClassDB.class_exists(type_name):
+		if not ClassDB.is_parent_class(type_name, "WeaverWebNode") or not ClassDB.can_instantiate(type_name):
+			return null
+		return ClassDB.instantiate(type_name) as WeaverWebNode
+	for info in ProjectSettings.get_global_class_list():
+		if info["class"] == type_name:
+			var script := load(info.path) as Script
+			if script == null or not script.can_instantiate() or not ClassDB.is_parent_class(script.get_instance_base_type(), "WeaverWebNode"):
+				return null
+			var res := ClassDB.instantiate(script.get_instance_base_type()) as WeaverWebNode
+			res.set_script(script)
+			return res
+	return null
 
 # Moves a node to another stage column (possibly in another lane or view). Bindings are kept even if
 # the move makes them invalid, so the UI can show them as broken instead of silently dropping them.

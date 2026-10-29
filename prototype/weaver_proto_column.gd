@@ -36,8 +36,8 @@ func setup(p_canvas: WeaverProtoCanvas, p_view_id: int, p_lane_id: int, p_stage:
 	label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(label)
-	var add_button := WeaverProtoStyle.small_button("+", "Add a node to this stage")
-	add_button.pressed.connect(func(): canvas.model.add_node(view_id, lane_id, stage))
+	var add_button := WeaverProtoStyle.small_button("+", "Add a node to this stage: pick WeaverWebNode or a class derived from it")
+	add_button.pressed.connect(func(): canvas.node_scripts.add_node(view_id, lane_id, stage))
 	header.add_child(add_button)
 
 	# Cards top to bottom in run order, with a short arrow between each pair.

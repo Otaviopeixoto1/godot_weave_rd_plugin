@@ -16,7 +16,13 @@ const VIEW_ARROW_Y := 22.0
 signal highlight_changed(producer: int, resource: String)
 signal status_changed(text: String, ok: bool)
 
-var model: WeaverProtoModel
+var model: WeaverProtoModel:
+	set(value):
+		model = value
+		node_scripts.model = value
+
+# Script / class actions of the cards (attach script, change class, add a node of a class).
+var node_scripts: WeaverProtoNodeScripts
 
 var _scroll: ScrollContainer
 var _views_box: HBoxContainer
@@ -40,6 +46,10 @@ var _confirm_action: Callable
 
 func _init() -> void:
 	clip_contents = true
+
+	node_scripts = WeaverProtoNodeScripts.new()
+	node_scripts.status.connect(show_status)
+	add_child(node_scripts)
 
 	_picker = WeaverProtoSlotPicker.new()
 	add_child(_picker)
