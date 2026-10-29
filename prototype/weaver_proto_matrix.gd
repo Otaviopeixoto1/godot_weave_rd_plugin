@@ -81,13 +81,13 @@ func _rebuild_path_bar() -> void:
 		if lanes.is_empty():
 			continue
 		var view_label := Label.new()
-		view_label.text = "  " + view.name
+		view_label.text = "  " + WeaverProtoModel.slot_name(view.slot)
 		view_label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
 		_path_bar.add_child(view_label)
 		var picker := OptionButton.new()
 		picker.focus_mode = Control.FOCUS_NONE
 		for lane in lanes:
-			picker.add_item(lane.name)
+			picker.add_icon_item(WeaverProtoStyle.editor_icon("Camera3D"), WeaverProtoModel.slot_name(lane.slot))
 		picker.select(clampi(view.path_lane, 0, lanes.size() - 1))
 		var view_id: int = view.id
 		picker.item_selected.connect(func(index): model.set_path_lane(view_id, index))

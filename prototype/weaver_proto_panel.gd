@@ -24,8 +24,8 @@ func _init() -> void:
 	add_child(toolbar)
 	var add_view := Button.new()
 	add_view.text = "+ View"
-	add_view.tooltip_text = "Add a view. Views render left to right."
-	add_view.pressed.connect(func(): model.add_view())
+	add_view.tooltip_text = "Add a view: pick or create its view slot. Views render left to right."
+	add_view.pressed.connect(func(): _canvas.pick_view_slot(add_view))
 	toolbar.add_child(add_view)
 	var reset := Button.new()
 	reset.text = "Reset demo"

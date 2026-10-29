@@ -24,9 +24,28 @@ var _in_chips := {}  # resource key -> Array of read WeaverProtoChips
 var _hl_producer := -1
 var _hl_resource := ""
 
+var _picker: WeaverProtoSlotPicker
+var _rename_dialog: ConfirmationDialog
+var _rename_edit: LineEdit
+var _renaming: Resource
+var _saved_webs: Array = [] # WeaverSlotLibrary.collect_web_slots(), refreshed on rebuild
+
 
 func _init() -> void:
 	clip_contents = true
+
+	_picker = WeaverProtoSlotPicker.new()
+	add_child(_picker)
+
+	_rename_dialog = ConfirmationDialog.new()
+	_rename_dialog.title = "Rename slot"
+	_rename_dialog.ok_button_text = "Rename"
+	_rename_edit = LineEdit.new()
+	_rename_dialog.add_child(_rename_edit)
+	_rename_dialog.register_text_enter(_rename_edit)
+	_rename_dialog.confirmed.connect(_on_rename_confirmed)
+	_rename_edit.text_changed.connect(func(t): _rename_dialog.get_ok_button().disabled = t.strip_edges().is_empty())
+	add_child(_rename_dialog)
 
 	_scroll = ScrollContainer.new()
 	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -57,6 +76,7 @@ func rebuild() -> void:
 	_cards.clear()
 	_out_chips.clear()
 	_in_chips.clear()
+	_saved_webs = WeaverSlotLibrary.collect_web_slots()
 	for child in _views_box.get_children():
 		_views_box.remove_child(child)
 		child.queue_free()
@@ -105,6 +125,79 @@ func show_status(text: String, ok: bool) -> void:
 
 
 #
+# Slots
+#
+
+# Opens the slot picker for a new view (view_id < 0) or to change a view's slot.
+func pick_view_slot(near: Control, view_id: int = -1) -> void:
+	var title := "New view: pick or create a view slot" if view_id < 0 else "Change the view slot"
+	var on_chosen := func(slot):
+		if view_id < 0:
+			model.add_view(slot)
+		else:
+			model.set_view_slot(view_id, slot)
+	_picker.open(WeaverSlotLibrary.KIND_VIEW, title, model.used_view_slots(view_id), _model_slots(true), on_chosen, _screen_rect(near))
+
+# Opens the slot picker for a new lane (lane_id < 0) or to change a lane's slot.
+func pick_lane_slot(near: Control, view_id: int, lane_id: int = -1) -> void:
+	var title := "New lane: pick or create a camera slot" if lane_id < 0 else "Change the camera slot"
+	var on_chosen := func(slot):
+		if lane_id < 0:
+			model.add_lane(view_id, slot)
+		else:
+			model.set_lane_slot(view_id, lane_id, slot)
+	_picker.open(WeaverSlotLibrary.KIND_CAMERA, title, model.used_camera_slots(view_id, lane_id), _model_slots(false), on_chosen, _screen_rect(near))
+
+func _screen_rect(control: Control) -> Rect2:
+	return Rect2(control.get_screen_position(), control.size)
+
+func rename_slot(slot: Resource) -> void:
+	if slot == null:
+		return
+	_renaming = slot
+	_rename_edit.text = WeaverProtoModel.slot_name(slot)
+	_rename_dialog.popup_centered(Vector2i(320, 0))
+	_rename_edit.grab_focus()
+	_rename_edit.select_all()
+
+func _on_rename_confirmed() -> void:
+	var new_name := _rename_edit.text.strip_edges()
+	if _renaming == null or new_name.is_empty():
+		return
+	if _renaming.resource_path.is_empty():
+		_renaming.resource_name = new_name
+	else:
+		WeaverSlotLibrary.rename_slot(_renaming, new_name)
+	_renaming = null
+	model.slot_renamed()
+
+# Slots the model already uses, so in-memory (demo) slots show up in the picker too.
+func _model_slots(view_slots: bool) -> Array:
+	var slots: Array = []
+	for view in model.views:
+		if view_slots:
+			slots.append(view.slot)
+		else:
+			for lane in view.lanes:
+				slots.append(lane.slot)
+	return slots
+
+# Saved webs using a slot, from the scan done in rebuild().
+func _webs_using(slot: Resource) -> PackedStringArray:
+	var webs: PackedStringArray = []
+	if slot == null:
+		return webs
+	for web in _saved_webs:
+		var used := false
+		for view in web.views:
+			if view.slot == slot or (view.lanes as Array).has(slot):
+				used = true
+		if used:
+			webs.append(String(web.path).get_file())
+	return webs
+
+
+#
 # Building
 #
 func _build_view(view: Dictionary, view_index: int) -> Control:
@@ -117,14 +210,13 @@ func _build_view(view: Dictionary, view_index: int) -> Control:
 
 	var header := HBoxContainer.new()
 	box.add_child(header)
-	var title := Label.new()
-	title.text = "View %d  ·  %s" % [view_index, view.name]
-	title.tooltip_text = "Views render left to right. A node can read resources from any earlier view."
-	title.mouse_filter = Control.MOUSE_FILTER_PASS
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var view_id: int = view.id
+	var title := WeaverProtoSlotHeader.new().setup(WeaverSlotLibrary.KIND_VIEW, view.slot, model.view_slot_error(view_id), _webs_using(view.slot), "%d · " % view_index)
+	title.change_requested.connect(func(): pick_view_slot(title, view_id))
+	title.rename_requested.connect(func(): rename_slot(view.slot))
 	header.add_child(title)
-	var add_lane := WeaverProtoStyle.small_button("+ Lane", "Add a spider (camera slot) to this view")
-	add_lane.pressed.connect(func(): model.add_lane(view.id))
+	var add_lane := WeaverProtoStyle.small_button("+ Lane", "Add a lane: pick or create its camera slot")
+	add_lane.pressed.connect(func(): pick_lane_slot(add_lane, view_id))
 	header.add_child(add_lane)
 
 	var lanes: Array = view.lanes
@@ -150,11 +242,11 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 
 	var header := HBoxContainer.new()
 	box.add_child(header)
-	var title := Label.new()
-	title.text = lane.name
-	title.tooltip_text = "Only one lane of a view runs per frame, so lanes can't share resources."
-	title.mouse_filter = Control.MOUSE_FILTER_PASS
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var view_id: int = view.id
+	var lane_id: int = lane.id
+	var title := WeaverProtoSlotHeader.new().setup(WeaverSlotLibrary.KIND_CAMERA, lane.slot, model.lane_slot_error(view_id, lane_id), _webs_using(lane.slot))
+	title.change_requested.connect(func(): pick_lane_slot(title, view_id, lane_id))
+	title.rename_requested.connect(func(): rename_slot(lane.slot))
 	header.add_child(title)
 	if in_path:
 		var tag := Label.new()

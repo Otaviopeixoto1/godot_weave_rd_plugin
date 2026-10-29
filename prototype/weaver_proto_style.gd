@@ -14,6 +14,15 @@ const VALID := Color(0.35, 0.8, 0.55)
 const INVALID := Color(0.9, 0.35, 0.35)
 const DARK_TEXT := Color(0.08, 0.08, 0.1)
 const MUTED_TEXT := Color(0.6, 0.62, 0.68)
+const VIEW_SLOT := Color(0.5, 0.47, 0.87)
+const CAMERA_SLOT := Color(0.11, 0.62, 0.46)
+
+
+static func editor_icon(icon_name: String) -> Texture2D:
+	var theme := EditorInterface.get_editor_theme()
+	if theme == null or not theme.has_icon(icon_name, "EditorIcons"):
+		return null
+	return theme.get_icon(icon_name, "EditorIcons")
 
 
 static func box(bg: Color, border: Color = Color.TRANSPARENT, border_width: int = 1, radius: int = 4, margin: int = 6) -> StyleBoxFlat:
