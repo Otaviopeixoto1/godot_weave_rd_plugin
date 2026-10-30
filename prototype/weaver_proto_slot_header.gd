@@ -5,7 +5,7 @@ class_name WeaverProtoSlotHeader
 #
 # Header of a view column or lane. The header IS the slot: it shows the slot's name with a type icon and color
 # (view = viewport/purple, camera = camera/teal) and its state. Double-click renames the slot, right-click opens
-# Change slot / Rename / Show in FileSystem.
+# Change slot / Rename in FileSystem.
 #
 # States: no slot (red, "Assign"), duplicate (red), missing file (broken link), shared with saved webs (link icon),
 # unsaved (embedded in the web or never saved, muted).
@@ -14,7 +14,7 @@ class_name WeaverProtoSlotHeader
 signal change_requested
 signal rename_requested
 
-enum MenuId { CHANGE, RENAME, SHOW }
+enum MenuId { CHANGE, RENAME }
 
 var kind: int
 var slot: Resource
@@ -77,7 +77,6 @@ func setup(p_kind: int, p_slot: Resource, error: String, webs: PackedStringArray
 	_menu = PopupMenu.new()
 	_menu.add_item("Change slot...", MenuId.CHANGE)
 	_menu.add_item("Rename...", MenuId.RENAME)
-	_menu.add_item("Show in FileSystem", MenuId.SHOW)
 	_menu.id_pressed.connect(_on_menu_id_pressed)
 	add_child(_menu)
 	return self
@@ -95,7 +94,6 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 	elif mb.button_index == MOUSE_BUTTON_RIGHT:
 		_menu.set_item_disabled(_menu.get_item_index(MenuId.RENAME), slot == null)
-		_menu.set_item_disabled(_menu.get_item_index(MenuId.SHOW), slot == null or slot.resource_path.is_empty())
 		_menu.reset_size()
 		_menu.popup(Rect2i(Vector2i(get_screen_position() + mb.position), Vector2i.ZERO))
 		accept_event()
@@ -107,8 +105,6 @@ func _on_menu_id_pressed(id: int) -> void:
 			change_requested.emit()
 		MenuId.RENAME:
 			rename_requested.emit()
-		MenuId.SHOW:
-			EditorInterface.select_file(slot.resource_path)
 
 
 func _icon(icon_name: String) -> TextureRect:

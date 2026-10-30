@@ -36,9 +36,7 @@ var _hl_producer := -1
 var _hl_resource := ""
 
 var _picker: WeaverProtoSlotPicker
-var _rename_dialog: ConfirmationDialog
-var _rename_edit: LineEdit
-var _renaming: Resource
+var _rename_dialog: WeaverProtoRenameDialog
 var _saved_webs: Array = [] # WeaverSlotLibrary.collect_web_slots(), refreshed on rebuild
 var _confirm_dialog: ConfirmationDialog
 var _confirm_action: Callable
@@ -54,14 +52,7 @@ func _init() -> void:
 	_picker = WeaverProtoSlotPicker.new()
 	add_child(_picker)
 
-	_rename_dialog = ConfirmationDialog.new()
-	_rename_dialog.title = "Rename slot"
-	_rename_dialog.ok_button_text = "Rename"
-	_rename_edit = LineEdit.new()
-	_rename_dialog.add_child(_rename_edit)
-	_rename_dialog.register_text_enter(_rename_edit)
-	_rename_dialog.confirmed.connect(_on_rename_confirmed)
-	_rename_edit.text_changed.connect(func(t): _rename_dialog.get_ok_button().disabled = t.strip_edges().is_empty())
+	_rename_dialog = WeaverProtoRenameDialog.new()
 	add_child(_rename_dialog)
 
 	_confirm_dialog = ConfirmationDialog.new()
@@ -153,6 +144,10 @@ func inspect_node(node_id: int) -> void:
 	if res != null:
 		EditorInterface.edit_resource(res)
 
+func rename_node(node_id: int) -> void:
+	var on_renamed := func(new_name: String): model.rename_node(node_id, new_name)
+	_rename_dialog.open("Rename node", model.node_name(node_id), on_renamed)
+
 func _confirm(text: String, ok_text: String, action: Callable) -> void:
 	_confirm_action = action
 	_confirm_dialog.dialog_text = text
@@ -190,22 +185,13 @@ func _screen_rect(control: Control) -> Rect2:
 func rename_slot(slot: Resource) -> void:
 	if slot == null:
 		return
-	_renaming = slot
-	_rename_edit.text = WeaverProtoModel.slot_name(slot)
-	_rename_dialog.popup_centered(Vector2i(320, 0))
-	_rename_edit.grab_focus()
-	_rename_edit.select_all()
-
-func _on_rename_confirmed() -> void:
-	var new_name := _rename_edit.text.strip_edges()
-	if _renaming == null or new_name.is_empty():
-		return
-	if _renaming.resource_path.is_empty():
-		_renaming.resource_name = new_name
-	else:
-		WeaverSlotLibrary.rename_slot(_renaming, new_name)
-	_renaming = null
-	model.slot_renamed()
+	var on_renamed := func(new_name: String):
+		if slot.resource_path.is_empty():
+			slot.resource_name = new_name
+		else:
+			WeaverSlotLibrary.rename_slot(slot, new_name)
+		model.slot_renamed()
+	_rename_dialog.open("Rename slot", WeaverProtoModel.slot_name(slot), on_renamed)
 
 # Slots the web already uses, so slots that aren't in the slot directory (embedded in the web or saved elsewhere)
 # show up in the picker too.
@@ -247,14 +233,17 @@ func _build_view(view: Dictionary, view_index: int) -> Control:
 
 	var header := HBoxContainer.new()
 	box.add_child(header)
+	
 	var view_id: int = view.id
 	var title := WeaverProtoSlotHeader.new().setup(WeaverSlotLibrary.KIND_VIEW, view.slot, model.view_slot_error(view_id), _webs_using(view.slot), "%d · " % view_index)
 	title.change_requested.connect(func(): pick_view_slot(title, view_id))
 	title.rename_requested.connect(func(): rename_slot(view.slot))
 	header.add_child(title)
+	
 	var add_lane := WeaverProtoStyle.small_button("+ Lane", "Add a lane (WeaverSpider): pick or create its camera slot")
 	add_lane.pressed.connect(func(): pick_lane_slot(add_lane, view_id))
 	header.add_child(add_lane)
+	
 	var remove := WeaverProtoStyle.small_button("×", "Remove this view from the web")
 	remove.pressed.connect(func(): _confirm("Remove view \"%s\" and all its lanes and nodes from the web?" % WeaverProtoModel.slot_name(view.slot), "Remove", model.remove_view.bind(view_id)))
 	header.add_child(remove)

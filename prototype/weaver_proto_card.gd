@@ -4,8 +4,8 @@ class_name WeaverProtoCard
 
 #
 # A card for one entry of a WeaverSpider (a WeaverWebNode or a plain CompositorEffect). Drag the card to move it to
-# another stage column (or lane (WeaverSpider)/view). Double-click or the edit button opens the resource in the Inspector,
-# the script button attaches / edits its script or changes its class (WeaverProtoNodeScripts).
+# another stage column (or lane/view). Double-click the title to rename the node. Double-click the card or use the edit
+# button to open the resource in the Inspector, the script button attaches/edits its script or changes its class (WeaverProtoNodeScripts).
 # Drop a resource chip on it to bind the node to that resource.
 #
 
@@ -30,18 +30,25 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	add_theme_stylebox_override("panel", _style)
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
 	add_child(box)
 
+	#
+	# Header
+	#
 	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 4)
 	box.add_child(title_row)
+	
 	var title := Label.new()
-	title.text = "#%d  %s" % [model.lane_order_index(node_id), model.node_name(node_id)]
+	title.text = model.node_name(node_id)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.clip_text = true
-	title.tooltip_text = "%s\nDrag to move this node to another stage, lane, or view. Double-click to edit it in the Inspector." % model.node_resource(node_id).get_class()
+	title.clip_text = false
+	title.tooltip_text = "%s\nDrag to move this node to another stage, lane, or view. Double-click to rename it." % model.node_resource(node_id).get_class()
 	title.mouse_filter = Control.MOUSE_FILTER_PASS
 	title_row.add_child(title)
+	
+	title.gui_input.connect(_on_title_gui_input.bind(title))
+
 	if model.is_plain_effect(node_id):
 		var tag := Label.new()
 		tag.text = "effect"
@@ -49,17 +56,26 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 		tag.mouse_filter = Control.MOUSE_FILTER_PASS
 		tag.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
 		title_row.add_child(tag)
-	title_row.add_child(_make_script_button())
+	
+	var buttons_row := HBoxContainer.new()
+	buttons_row.add_theme_constant_override("separation", 0)
+	title_row.add_child(buttons_row)
+	
+	buttons_row.add_child(_make_script_button())
+	
 	var edit_button := WeaverProtoStyle.small_button("", "Edit in the Inspector")
 	edit_button.icon = WeaverProtoStyle.editor_icon("Edit")
 	edit_button.pressed.connect(func(): canvas.inspect_node(node_id))
-	title_row.add_child(edit_button)
+	buttons_row.add_child(edit_button)
+	
 	var delete_button := WeaverProtoStyle.small_button("×", "Remove the node from the WeaverSpider")
 	delete_button.pressed.connect(func(): model.remove_node(node_id))
-	title_row.add_child(delete_button)
+	buttons_row.add_child(delete_button)
 	
-
 	
+	#
+	# Content
+	#
 	# TODO: Make this the "Creates" Section. Add labels
 	var owns := HFlowContainer.new()
 	owns.add_theme_constant_override("h_separation", 4)
@@ -93,6 +109,7 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	canvas.register_card(self)
 	return self
 
+#func _on_card
 
 # Script menu: attach a new or existing script (WeaverWebNode-based), edit / detach it, or change the node's class.
 # The icon shows whether a script is attached.
@@ -150,6 +167,12 @@ func _gui_input(event: InputEvent) -> void:
 	if mb != null and mb.pressed and mb.double_click and mb.button_index == MOUSE_BUTTON_LEFT:
 		canvas.inspect_node(node_id)
 		accept_event()
+
+func _on_title_gui_input(event: InputEvent, title: Label) -> void:
+	var mb := event as InputEventMouseButton
+	if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+		canvas.rename_node(node_id)
+		title.accept_event()
 
 
 func _get_drag_data(_at_position: Vector2) -> Variant:
