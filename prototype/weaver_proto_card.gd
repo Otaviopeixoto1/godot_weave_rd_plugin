@@ -4,7 +4,7 @@ class_name WeaverProtoCard
 
 #
 # A card for one entry of a WeaverSpider (a WeaverWebNode or a plain CompositorEffect). Drag the card to move it to
-# another stage column (or lane/view). Double-click the title to rename the node. Double-click the card or use the edit
+# another stage column (or lane/view). Right-click the title to rename the node. Double-click the card or use the edit
 # button to open the resource in the Inspector, the script button attaches/edits its script or changes its class (WeaverProtoNodeScripts).
 # Drop a resource chip on it to bind the node to that resource.
 #
@@ -43,7 +43,7 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	title.text = model.node_name(node_id)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.clip_text = false
-	title.tooltip_text = "%s\nDrag to move this node to another stage, lane, or view. Double-click to rename it." % model.node_resource(node_id).get_class()
+	title.tooltip_text = "%s\nDrag to move this node to another stage, lane, or view. Right-click to rename it." % model.node_resource(node_id).get_class()
 	title.mouse_filter = Control.MOUSE_FILTER_PASS
 	title_row.add_child(title)
 	

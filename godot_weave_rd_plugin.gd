@@ -6,6 +6,7 @@ const MainPanel = preload("res://addons/godot_weave_rd_plugin/scenes/weave_rd_sc
 const USE_PROTOTYPE := true
 
 var main_panel_instance: Control
+var profiler_debugger: WeaverProfilerDebugger
 
 func _enable_plugin() -> void:
 	# Add autoloads here.
@@ -29,7 +30,11 @@ func _enter_tree() -> void:
 	# Hide the main panel. Very much required.
 	_make_visible(false)
 
+	profiler_debugger = WeaverProfilerDebugger.new()
+	add_debugger_plugin(profiler_debugger)
+
 func _exit_tree() -> void:
+	remove_debugger_plugin(profiler_debugger)
 	if main_panel_instance:
 		main_panel_instance.call("cleanup_plugin")
 		main_panel_instance.queue_free()
