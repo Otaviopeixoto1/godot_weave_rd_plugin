@@ -7,6 +7,7 @@ const USE_PROTOTYPE := true
 
 var main_panel_instance: Control
 var profiler_debugger: WeaverProfilerDebugger
+var shader_includes: WeaverShaderIncludes
 
 func _enable_plugin() -> void:
 	# Add autoloads here.
@@ -33,8 +34,12 @@ func _enter_tree() -> void:
 	profiler_debugger = WeaverProfilerDebugger.new()
 	add_debugger_plugin(profiler_debugger)
 
+	shader_includes = WeaverShaderIncludes.new()
+	add_child(shader_includes)
+
 func _exit_tree() -> void:
 	remove_debugger_plugin(profiler_debugger)
+	shader_includes.queue_free()
 	if main_panel_instance:
 		main_panel_instance.call("cleanup_plugin")
 		main_panel_instance.queue_free()
@@ -46,6 +51,12 @@ func _has_main_screen():
 func _make_visible(visible):
 	if main_panel_instance:
 		main_panel_instance.visible = visible
+
+
+# Runs before Play. Always true: a failed check must not stop the game from starting.
+func _build() -> bool:
+	shader_includes.check_before_run()
+	return true
 
 
 # Ctrl+S / Save All also save the web open in the prototype.
