@@ -1,11 +1,7 @@
 @tool
 extends EditorPlugin
 
-const MainPanel = preload("res://addons/godot_weave_rd_plugin/scenes/weave_rd_scene.tscn")
-# Shows the resource-binding prototype (prototype/) instead of the WeaverWeb graph scene.
-const USE_PROTOTYPE := true
-
-var main_panel_instance: Control
+var main_panel_instance: WeaverPanel
 var profiler_debugger: WeaverProfilerDebugger
 var shader_includes: WeaverShaderIncludes
 
@@ -20,12 +16,9 @@ func _disable_plugin() -> void:
 
 
 func _enter_tree() -> void:
-	if USE_PROTOTYPE:
-		main_panel_instance = WeaverProtoPanel.new()
-	else:
-		main_panel_instance = MainPanel.instantiate() as WeaverEditorScene
-	main_panel_instance.call("setup_for_plugin")
-	
+	main_panel_instance = WeaverPanel.new()
+	main_panel_instance.reopen_last_web()
+
 	# Add the main panel to the editor's main viewport.
 	EditorInterface.get_editor_main_screen().add_child(main_panel_instance)
 	# Hide the main panel. Very much required.
@@ -41,7 +34,6 @@ func _exit_tree() -> void:
 	remove_debugger_plugin(profiler_debugger)
 	shader_includes.queue_free()
 	if main_panel_instance:
-		main_panel_instance.call("cleanup_plugin")
 		main_panel_instance.queue_free()
 
 func _has_main_screen():
@@ -59,14 +51,14 @@ func _build() -> bool:
 	return true
 
 
-# Ctrl+S / Save All also save the web open in the prototype.
+# Ctrl+S / Save All also save the web open in the WeaveRD panel.
 func _save_external_data() -> void:
-	if main_panel_instance is WeaverProtoPanel and main_panel_instance.has_unsaved_web():
+	if main_panel_instance and main_panel_instance.has_unsaved_web():
 		main_panel_instance.save_web()
 
 # Asked when the editor quits (for_scene is empty): lets the user save an edited web first.
 func _get_unsaved_status(for_scene: String) -> String:
-	if for_scene.is_empty() and main_panel_instance is WeaverProtoPanel and main_panel_instance.has_unsaved_web():
+	if for_scene.is_empty() and main_panel_instance and main_panel_instance.has_unsaved_web():
 		return "Save changes to %s before closing?" % main_panel_instance.model.web_name()
 	return ""
 

@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name WeaverProtoModel
+class_name WeaverModel
 
 #
 # Data model of the WeaveRD editor, parsed from a real WeaverWeb (open_web) and written back to it on every edit.

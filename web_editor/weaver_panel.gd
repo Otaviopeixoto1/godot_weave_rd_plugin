@@ -1,24 +1,24 @@
 @tool
 extends VBoxContainer
-class_name WeaverProtoPanel
+class_name WeaverPanel
 
 #
 # Root of the WeaveRD main screen: a toolbar, the canvas on top and the resource matrix below. Both are rebuilt from
-# WeaverProtoModel whenever it changes.
+# WeaverModel whenever it changes.
 #
 # The toolbar's Web menu picks the WeaverWeb being edited: any web saved in the project, Open... (file picker) or
 # New... (creates and saves an empty web). Edits are written to the web right away and saved with Save, Ctrl+S or
 # Save All in the editor; switching to another web saves the current one first. The last opened web is reopened
 # the next time the editor starts.
-# Frame resources and their bindings are still prototype data kept in memory (see WeaverProtoModel).
+# Frame resources and their bindings are still prototype data kept in memory (see WeaverModel).
 #
 
 enum WebMenuId { NEW = 1000, OPEN, SHOW, INSPECT, CLOSE }
 
-var model := WeaverProtoModel.new()
+var model := WeaverModel.new()
 
-var _canvas: WeaverProtoCanvas
-var _matrix: WeaverProtoMatrix
+var _canvas: WeaverCanvas
+var _matrix: WeaverMatrix
 var _status: Label
 var _web_menu: MenuButton
 var _add_view: Button
@@ -31,7 +31,7 @@ var _menu_webs: PackedStringArray = []
 
 
 func _init() -> void:
-	name = "WeaveRDPrototype"
+	name = "WeaveRD"
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
 
@@ -40,7 +40,7 @@ func _init() -> void:
 
 	_web_menu = MenuButton.new()
 	_web_menu.flat = false
-	_web_menu.icon = WeaverProtoStyle.editor_icon("Load")
+	_web_menu.icon = WeaverStyle.editor_icon("Load")
 	_web_menu.tooltip_text = "The WeaverWeb being edited. Pick a saved web, open one from a file or create a new one."
 	_web_menu.about_to_popup.connect(_fill_web_menu)
 	_web_menu.get_popup().id_pressed.connect(_on_web_menu_id_pressed)
@@ -53,7 +53,7 @@ func _init() -> void:
 	toolbar.add_child(_save)
 
 	_reload = Button.new()
-	_reload.icon = WeaverProtoStyle.editor_icon("Reload")
+	_reload.icon = WeaverStyle.editor_icon("Reload")
 	_reload.tooltip_text = "Parse the web again, e.g. after editing it in the Inspector."
 	_reload.pressed.connect(model.reload)
 	toolbar.add_child(_reload)
@@ -72,7 +72,7 @@ func _init() -> void:
 
 	var note := Label.new()
 	note.text = "Frame resources (chips) are prototype data: not saved. Hover a chip to see its links, drag it onto a card to bind."
-	note.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+	note.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 	note.clip_text = true
 	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	note.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -86,7 +86,7 @@ func _init() -> void:
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(split)
 
-	_canvas = WeaverProtoCanvas.new()
+	_canvas = WeaverCanvas.new()
 	_canvas.model = model
 	_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_canvas.size_flags_stretch_ratio = 2.0
@@ -94,7 +94,7 @@ func _init() -> void:
 	_canvas.status_changed.connect(_on_status_changed)
 	split.add_child(_canvas)
 
-	_matrix = WeaverProtoMatrix.new().setup(model, _canvas)
+	_matrix = WeaverMatrix.new().setup(model, _canvas)
 	_matrix.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_matrix.custom_minimum_size.y = 160
 	split.add_child(_matrix)
@@ -109,14 +109,10 @@ func _init() -> void:
 	_rebuild()
 
 
-# Same entry points as WeaverEditorScene so the plugin can swap between them.
-func setup_for_plugin() -> void:
+func reopen_last_web() -> void:
 	var cache := WeaverStateCache.WeaverEditorData.load_or_default()
 	if cache.opened_web != null:
 		open_web(cache.opened_web)
-
-func cleanup_plugin() -> void:
-	pass
 
 
 func _notification(what: int) -> void:
@@ -198,8 +194,8 @@ func _fill_web_menu() -> void:
 		popup.add_radio_check_item(_menu_webs[i].trim_prefix("res://"), i)
 		popup.set_item_checked(popup.item_count - 1, model.has_web() and model.web.resource_path == _menu_webs[i])
 	popup.add_separator()
-	popup.add_icon_item(WeaverProtoStyle.editor_icon("New"), "New web...", WebMenuId.NEW)
-	popup.add_icon_item(WeaverProtoStyle.editor_icon("Load"), "Open...", WebMenuId.OPEN)
+	popup.add_icon_item(WeaverStyle.editor_icon("New"), "New web...", WebMenuId.NEW)
+	popup.add_icon_item(WeaverStyle.editor_icon("Load"), "Open...", WebMenuId.OPEN)
 	popup.add_separator()
 	popup.add_item("Edit in the Inspector", WebMenuId.INSPECT)
 	popup.add_item("Show in FileSystem", WebMenuId.SHOW)
@@ -249,8 +245,8 @@ func _update_toolbar() -> void:
 	_issues.visible = not lines.is_empty()
 	_issues.text = "%d issue%s" % [lines.size(), "" if lines.size() == 1 else "s"]
 	_issues.tooltip_text = "\n".join(lines)
-	_issues.add_theme_color_override("font_color", WeaverProtoStyle.INVALID if errors > 0 else WeaverProtoStyle.MUTED_TEXT)
+	_issues.add_theme_color_override("font_color", WeaverStyle.INVALID if errors > 0 else WeaverStyle.MUTED_TEXT)
 
 func _on_status_changed(text: String, ok: bool) -> void:
 	_status.text = text
-	_status.add_theme_color_override("font_color", WeaverProtoStyle.VALID if ok else WeaverProtoStyle.INVALID)
+	_status.add_theme_color_override("font_color", WeaverStyle.VALID if ok else WeaverStyle.INVALID)

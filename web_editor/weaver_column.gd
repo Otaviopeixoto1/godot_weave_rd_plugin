@@ -1,13 +1,13 @@
 @tool
 extends PanelContainer
-class_name WeaverProtoColumn
+class_name WeaverColumn
 
 #
 # One stage (EffectCallbackType) column inside a lane. Cards run top to bottom.
 # Dropping a card here moves the node into this stage at the drop position.
 #
 
-var canvas: WeaverProtoCanvas
+var canvas: WeaverCanvas
 var view_id: int
 var lane_id: int
 var stage: int
@@ -15,14 +15,14 @@ var stage: int
 var _list: VBoxContainer
 
 
-func setup(p_canvas: WeaverProtoCanvas, p_view_id: int, p_lane_id: int, p_stage: int) -> WeaverProtoColumn:
+func setup(p_canvas: WeaverCanvas, p_view_id: int, p_lane_id: int, p_stage: int) -> WeaverColumn:
 	canvas = p_canvas
 	view_id = p_view_id
 	lane_id = p_lane_id
 	stage = p_stage
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	custom_minimum_size = Vector2(180, 80)
-	add_theme_stylebox_override("panel", WeaverProtoStyle.box(WeaverProtoStyle.COLUMN_BG))
+	add_theme_stylebox_override("panel", WeaverStyle.box(WeaverStyle.COLUMN_BG))
 
 	var box := VBoxContainer.new()
 	add_child(box)
@@ -30,13 +30,13 @@ func setup(p_canvas: WeaverProtoCanvas, p_view_id: int, p_lane_id: int, p_stage:
 	var header := HBoxContainer.new()
 	box.add_child(header)
 	var label := Label.new()
-	label.text = WeaverProtoModel.STAGE_NAMES[stage]
-	#label.tooltip_text = WeaverProtoModel.STAGE_NAMES[stage]
+	label.text = WeaverModel.STAGE_NAMES[stage]
+	#label.tooltip_text = WeaverModel.STAGE_NAMES[stage]
 	label.mouse_filter = Control.MOUSE_FILTER_PASS
-	label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+	label.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(label)
-	var add_button := WeaverProtoStyle.small_button("+", "Add a node to this stage: pick WeaverWebNode or a class derived from it")
+	var add_button := WeaverStyle.small_button("+", "Add a node to this stage: pick WeaverWebNode or a class derived from it")
 	add_button.pressed.connect(func(): canvas.node_scripts.add_node(view_id, lane_id, stage))
 	header.add_child(add_button)
 
@@ -48,10 +48,10 @@ func setup(p_canvas: WeaverProtoCanvas, p_view_id: int, p_lane_id: int, p_stage:
 	var column: Array = lane.columns[stage]
 	for i in column.size():
 		if i > 0:
-			var arrow := WeaverProtoArrow.new().setup(WeaverProtoArrow.Direction.DOWN, "Runs after the node above.")
+			var arrow := WeaverArrow.new().setup(WeaverArrow.Direction.DOWN, "Runs after the node above.")
 			arrow.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			_list.add_child(arrow)
-		_list.add_child(WeaverProtoCard.new().setup(canvas, self, column[i]))
+		_list.add_child(WeaverCard.new().setup(canvas, self, column[i]))
 	return self
 
 
@@ -65,7 +65,7 @@ func _drop_data(_at_position: Vector2, data: Variant) -> void:
 func can_accept(data: Variant) -> bool:
 	if not data is Dictionary or data.get("kind") != "weave_card":
 		return false
-	canvas.show_status("Move \"%s\" to %s" % [canvas.model.node_name(data.node), WeaverProtoModel.STAGE_NAMES[stage]], true)
+	canvas.show_status("Move \"%s\" to %s" % [canvas.model.node_name(data.node), WeaverModel.STAGE_NAMES[stage]], true)
 	return true
 
 func accept(data: Variant) -> void:
@@ -75,7 +75,7 @@ func accept(data: Variant) -> void:
 func _insert_index(global_y: float) -> int:
 	var index := 0
 	for card in _list.get_children():
-		if not card is WeaverProtoCard:
+		if not card is WeaverCard:
 			continue
 		var rect := (card as Control).get_global_rect()
 		if global_y < rect.get_center().y:

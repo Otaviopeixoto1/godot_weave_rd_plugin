@@ -1,8 +1,8 @@
 @tool
 extends Object
-class_name WeaverProtoStyle
+class_name WeaverStyle
 
-# Shared colors and StyleBox helpers for the prototype UI (tuned for the default dark editor theme).
+# Shared colors and StyleBox helpers for the WeaveRD panel (tuned for the default dark editor theme).
 
 const CARD_BG := Color(0.16, 0.17, 0.2)
 const CARD_BORDER := Color(0.32, 0.34, 0.4)

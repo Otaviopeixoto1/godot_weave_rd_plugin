@@ -1,6 +1,6 @@
 @tool
 extends PanelContainer
-class_name WeaverProtoChip
+class_name WeaverChip
 
 #
 # A resource chip on a node card. Owned chips (solid) are resources the card's node produces.
@@ -8,14 +8,14 @@ class_name WeaverProtoChip
 # card to bind that card's node to the same resource. Hovering a chip highlights its links.
 #
 
-var canvas: WeaverProtoCanvas
-var card: WeaverProtoCard
+var canvas: WeaverCanvas
+var card: WeaverCard
 var producer: int
 var resource: String
 var consumer := -1  # -1 for an owned chip, otherwise the node reading the resource
 
 
-func setup(p_canvas: WeaverProtoCanvas, p_card: WeaverProtoCard, p_producer: int, p_resource: String, p_consumer: int = -1) -> WeaverProtoChip:
+func setup(p_canvas: WeaverCanvas, p_card: WeaverCard, p_producer: int, p_resource: String, p_consumer: int = -1) -> WeaverChip:
 	canvas = p_canvas
 	card = p_card
 	producer = p_producer
@@ -24,23 +24,23 @@ func setup(p_canvas: WeaverProtoCanvas, p_card: WeaverProtoCard, p_producer: int
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var model := canvas.model
-	var color := WeaverProtoModel.resource_color(producer, resource)
+	var color := WeaverModel.resource_color(producer, resource)
 	var error := "" if consumer < 0 else model.bind_error(producer, consumer)
 
 	var label := Label.new()
-	var close := WeaverProtoStyle.small_button("×", "")
+	var close := WeaverStyle.small_button("×", "")
 	if consumer < 0:
 		label.text = resource
-		label.add_theme_color_override("font_color", WeaverProtoStyle.DARK_TEXT)
-		close.add_theme_color_override("font_color", WeaverProtoStyle.DARK_TEXT)
-		add_theme_stylebox_override("panel", WeaverProtoStyle.box(color, Color.TRANSPARENT, 0, 8, 3))
+		label.add_theme_color_override("font_color", WeaverStyle.DARK_TEXT)
+		close.add_theme_color_override("font_color", WeaverStyle.DARK_TEXT)
+		add_theme_stylebox_override("panel", WeaverStyle.box(color, Color.TRANSPARENT, 0, 8, 3))
 		tooltip_text = "Owned by \"%s\". Drag onto a later node to bind it." % model.node_name(producer)
 		close.tooltip_text = "Delete this placeholder resource"
 		close.pressed.connect(func(): model.remove_resource(producer, resource))
 	else:
 		label.text = "%s.%s" % [model.node_name(producer), resource]
-		var border := color if error.is_empty() else WeaverProtoStyle.INVALID
-		add_theme_stylebox_override("panel", WeaverProtoStyle.box(Color(color, 0.15), border, 1, 8, 3))
+		var border := color if error.is_empty() else WeaverStyle.INVALID
+		add_theme_stylebox_override("panel", WeaverStyle.box(Color(color, 0.15), border, 1, 8, 3))
 		if error.is_empty():
 			tooltip_text = "Reads %s from \"%s\"." % [resource, model.node_name(producer)]
 		else:

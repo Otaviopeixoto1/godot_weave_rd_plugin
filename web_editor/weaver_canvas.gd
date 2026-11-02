@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name WeaverProtoCanvas
+class_name WeaverCanvas
 
 #
 # Main canvas: views left to right in render order, lanes (WeaverSpiders) stacked inside each view, and
@@ -16,27 +16,27 @@ const VIEW_ARROW_Y := 22.0
 signal highlight_changed(producer: int, resource: String)
 signal status_changed(text: String, ok: bool)
 
-var model: WeaverProtoModel:
+var model: WeaverModel:
 	set(value):
 		model = value
 		node_scripts.model = value
 
 # Script / class actions of the cards (attach script, change class, add a node of a class).
-var node_scripts: WeaverProtoNodeScripts
+var node_scripts: WeaverNodeScripts
 
 var _scroll: ScrollContainer
 var _views_box: HBoxContainer
 var _overlay: Control
 
-var _cards := {}     # node id -> WeaverProtoCard
-var _out_chips := {} # resource key -> owned WeaverProtoChip
-var _in_chips := {}  # resource key -> Array of read WeaverProtoChips
+var _cards := {}     # node id -> WeaverCard
+var _out_chips := {} # resource key -> owned WeaverChip
+var _in_chips := {}  # resource key -> Array of read WeaverChips
 
 var _hl_producer := -1
 var _hl_resource := ""
 
-var _picker: WeaverProtoSlotPicker
-var _rename_dialog: WeaverProtoRenameDialog
+var _picker: WeaverSlotPicker
+var _rename_dialog: WeaverRenameDialog
 var _saved_webs: Array = [] # WeaverSlotLibrary.collect_web_slots(), refreshed on rebuild
 var _confirm_dialog: ConfirmationDialog
 var _confirm_action: Callable
@@ -45,14 +45,14 @@ var _confirm_action: Callable
 func _init() -> void:
 	clip_contents = true
 
-	node_scripts = WeaverProtoNodeScripts.new()
+	node_scripts = WeaverNodeScripts.new()
 	node_scripts.status.connect(show_status)
 	add_child(node_scripts)
 
-	_picker = WeaverProtoSlotPicker.new()
+	_picker = WeaverSlotPicker.new()
 	add_child(_picker)
 
-	_rename_dialog = WeaverProtoRenameDialog.new()
+	_rename_dialog = WeaverRenameDialog.new()
 	add_child(_rename_dialog)
 
 	_confirm_dialog = ConfirmationDialog.new()
@@ -80,7 +80,7 @@ func _init() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_DRAG_END:
 		for card in _cards.values():
-			card.set_drop_state(WeaverProtoCard.DropState.NONE)
+			card.set_drop_state(WeaverCard.DropState.NONE)
 		show_status("", true)
 
 
@@ -95,13 +95,13 @@ func rebuild() -> void:
 
 	for vi in model.views.size():
 		if vi > 0:
-			_views_box.add_child(WeaverProtoArrow.new().setup(WeaverProtoArrow.Direction.RIGHT, "Renders after the view on the left.", VIEW_ARROW_Y))
+			_views_box.add_child(WeaverArrow.new().setup(WeaverArrow.Direction.RIGHT, "Renders after the view on the left.", VIEW_ARROW_Y))
 		_views_box.add_child(_build_view(model.views[vi], vi))
 
 	if model.views.is_empty():
 		var hint := Label.new()
 		hint.text = "No views yet. Add one with + View." if model.has_web() else "No web open. Open or create a WeaverWeb with the Web menu above."
-		hint.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+		hint.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 		_views_box.add_child(hint)
 	_overlay.queue_redraw()
 
@@ -109,11 +109,11 @@ func rebuild() -> void:
 #
 # Called by cards and chips
 #
-func register_card(card: WeaverProtoCard) -> void:
+func register_card(card: WeaverCard) -> void:
 	_cards[card.node_id] = card
 
-func register_chip(chip: WeaverProtoChip) -> void:
-	var key := WeaverProtoModel.resource_key(chip.producer, chip.resource)
+func register_chip(chip: WeaverChip) -> void:
+	var key := WeaverModel.resource_key(chip.producer, chip.resource)
 	if chip.consumer < 0:
 		_out_chips[key] = chip
 	else:
@@ -133,7 +133,7 @@ func set_highlight(producer: int, resource: String) -> void:
 func begin_chip_drag(producer: int, resource: String) -> void:
 	for node_id in _cards:
 		var ok := model.bind_error(producer, node_id).is_empty() and not model.is_bound(producer, resource, node_id)
-		_cards[node_id].set_drop_state(WeaverProtoCard.DropState.VALID if ok else WeaverProtoCard.DropState.INVALID)
+		_cards[node_id].set_drop_state(WeaverCard.DropState.VALID if ok else WeaverCard.DropState.INVALID)
 
 func show_status(text: String, ok: bool) -> void:
 	status_changed.emit(text, ok)
@@ -191,7 +191,7 @@ func rename_slot(slot: Resource) -> void:
 		else:
 			WeaverSlotLibrary.rename_slot(slot, new_name)
 		model.slot_renamed()
-	_rename_dialog.open("Rename slot", WeaverProtoModel.slot_name(slot), on_renamed)
+	_rename_dialog.open("Rename slot", WeaverModel.slot_name(slot), on_renamed)
 
 # Slots the web already uses, so slots that aren't in the slot directory (embedded in the web or saved elsewhere)
 # show up in the picker too.
@@ -225,7 +225,7 @@ func _webs_using(slot: Resource) -> PackedStringArray:
 #
 func _build_view(view: Dictionary, view_index: int) -> Control:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", WeaverProtoStyle.box(Color.TRANSPARENT, WeaverProtoStyle.VIEW_BORDER, 1, 8, 10))
+	panel.add_theme_stylebox_override("panel", WeaverStyle.box(Color.TRANSPARENT, WeaverStyle.VIEW_BORDER, 1, 8, 10))
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
@@ -235,24 +235,24 @@ func _build_view(view: Dictionary, view_index: int) -> Control:
 	box.add_child(header)
 	
 	var view_id: int = view.id
-	var title := WeaverProtoSlotHeader.new().setup(WeaverSlotLibrary.KIND_VIEW, view.slot, model.view_slot_error(view_id), _webs_using(view.slot), "%d · " % view_index)
+	var title := WeaverSlotHeader.new().setup(WeaverSlotLibrary.KIND_VIEW, view.slot, model.view_slot_error(view_id), _webs_using(view.slot), "%d · " % view_index)
 	title.change_requested.connect(func(): pick_view_slot(title, view_id))
 	title.rename_requested.connect(func(): rename_slot(view.slot))
 	header.add_child(title)
 	
-	var add_lane := WeaverProtoStyle.small_button("+ Lane", "Add a lane (WeaverSpider): pick or create its camera slot")
+	var add_lane := WeaverStyle.small_button("+ Lane", "Add a lane (WeaverSpider): pick or create its camera slot")
 	add_lane.pressed.connect(func(): pick_lane_slot(add_lane, view_id))
 	header.add_child(add_lane)
 	
-	var remove := WeaverProtoStyle.small_button("×", "Remove this view from the web")
-	remove.pressed.connect(func(): _confirm("Remove view \"%s\" and all its lanes and nodes from the web?" % WeaverProtoModel.slot_name(view.slot), "Remove", model.remove_view.bind(view_id)))
+	var remove := WeaverStyle.small_button("×", "Remove this view from the web")
+	remove.pressed.connect(func(): _confirm("Remove view \"%s\" and all its lanes and nodes from the web?" % WeaverModel.slot_name(view.slot), "Remove", model.remove_view.bind(view_id)))
 	header.add_child(remove)
 
 	var lanes: Array = view.lanes
 	if lanes.is_empty():
 		var hint := Label.new()
 		hint.text = "No lanes yet. Add one with + Lane."
-		hint.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+		hint.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 		box.add_child(hint)
 	for li in lanes.size():
 		box.add_child(_build_lane(view, li))
@@ -263,8 +263,8 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 	var in_path: bool = clampi(view.path_lane, 0, (view.lanes as Array).size() - 1) == lane_index
 
 	var panel := PanelContainer.new()
-	var bg := WeaverProtoStyle.LANE_LIVE_BG if in_path else WeaverProtoStyle.LANE_IDLE_BG
-	panel.add_theme_stylebox_override("panel", WeaverProtoStyle.box(bg, Color.TRANSPARENT, 0, 6, 6))
+	var bg := WeaverStyle.LANE_LIVE_BG if in_path else WeaverStyle.LANE_IDLE_BG
+	panel.add_theme_stylebox_override("panel", WeaverStyle.box(bg, Color.TRANSPARENT, 0, 6, 6))
 
 	var box := VBoxContainer.new()
 	panel.add_child(box)
@@ -273,31 +273,31 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 	box.add_child(header)
 	var view_id: int = view.id
 	var lane_id: int = lane.id
-	var title := WeaverProtoSlotHeader.new().setup(WeaverSlotLibrary.KIND_CAMERA, lane.slot, model.lane_slot_error(view_id, lane_id), _webs_using(lane.slot))
+	var title := WeaverSlotHeader.new().setup(WeaverSlotLibrary.KIND_CAMERA, lane.slot, model.lane_slot_error(view_id, lane_id), _webs_using(lane.slot))
 	title.change_requested.connect(func(): pick_lane_slot(title, view_id, lane_id))
 	title.rename_requested.connect(func(): rename_slot(lane.slot))
 	header.add_child(title)
 	if in_path:
 		var tag := Label.new()
 		tag.text = "● in matrix"
-		tag.add_theme_color_override("font_color", WeaverProtoStyle.VALID)
+		tag.add_theme_color_override("font_color", WeaverStyle.VALID)
 		header.add_child(tag)
 	else:
-		var show_button := WeaverProtoStyle.small_button("Show in matrix", "Use this lane for the view's frame path in the matrix")
+		var show_button := WeaverStyle.small_button("Show in matrix", "Use this lane for the view's frame path in the matrix")
 		show_button.pressed.connect(func(): model.set_path_lane(view.id, lane_index))
 		header.add_child(show_button)
-	var remove := WeaverProtoStyle.small_button("×", "Remove this lane (WeaverSpider) from the view")
-	remove.pressed.connect(func(): _confirm("Remove lane \"%s\" and all its nodes from the view?" % WeaverProtoModel.slot_name(lane.slot), "Remove", model.remove_lane.bind(view_id, lane_id)))
+	var remove := WeaverStyle.small_button("×", "Remove this lane (WeaverSpider) from the view")
+	remove.pressed.connect(func(): _confirm("Remove lane \"%s\" and all its nodes from the view?" % WeaverModel.slot_name(lane.slot), "Remove", model.remove_lane.bind(view_id, lane_id)))
 	header.add_child(remove)
 
 	# Stage columns left to right in run order, with a short arrow between each pair.
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 2)
 	box.add_child(columns)
-	for stage in WeaverProtoModel.STAGE_COUNT:
+	for stage in WeaverModel.STAGE_COUNT:
 		if stage > 0:
-			columns.add_child(WeaverProtoArrow.new().setup(WeaverProtoArrow.Direction.RIGHT, "Runs after the stage on the left.", COLUMN_ARROW_Y))
-		columns.add_child(WeaverProtoColumn.new().setup(self, view.id, lane.id, stage))
+			columns.add_child(WeaverArrow.new().setup(WeaverArrow.Direction.RIGHT, "Runs after the stage on the left.", COLUMN_ARROW_Y))
+		columns.add_child(WeaverColumn.new().setup(self, view.id, lane.id, stage))
 	return panel
 
 
@@ -307,11 +307,11 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 func _draw_overlay() -> void:
 	if _hl_producer < 0:
 		return
-	var key := WeaverProtoModel.resource_key(_hl_producer, _hl_resource)
+	var key := WeaverModel.resource_key(_hl_producer, _hl_resource)
 	var source: Control = _out_chips.get(key)
 	if source == null or not is_instance_valid(source):
 		return
-	var color := WeaverProtoModel.resource_color(_hl_producer, _hl_resource)
+	var color := WeaverModel.resource_color(_hl_producer, _hl_resource)
 	var to_local := _overlay.get_global_transform().affine_inverse()
 
 	var source_rect := to_local * source.get_global_rect()
@@ -324,7 +324,7 @@ func _draw_overlay() -> void:
 		var rect: Rect2 = to_local * (chip as Control).get_global_rect()
 		var end := Vector2(rect.position.x, rect.get_center().y)
 		var valid: bool = model.bind_error(_hl_producer, chip.consumer).is_empty()
-		var link_color := color if valid else WeaverProtoStyle.INVALID
+		var link_color := color if valid else WeaverStyle.INVALID
 		var bend := maxf(60.0, absf(end.x - start.x) * 0.4)
 		var points := PackedVector2Array()
 		for i in 25:

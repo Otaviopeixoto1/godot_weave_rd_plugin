@@ -1,32 +1,32 @@
 @tool
 extends PanelContainer
-class_name WeaverProtoCard
+class_name WeaverCard
 
 #
 # A card for one entry of a WeaverSpider (a WeaverWebNode or a plain CompositorEffect). Drag the card to move it to
 # another stage column (or lane/view). Right-click the title to rename the node. Double-click the card or use the edit
-# button to open the resource in the Inspector, the script button attaches/edits its script or changes its class (WeaverProtoNodeScripts).
+# button to open the resource in the Inspector, the script button attaches/edits its script or changes its class (WeaverNodeScripts).
 # Drop a resource chip on it to bind the node to that resource.
 #
 
 enum DropState { NONE, VALID, INVALID }
 enum ScriptMenu { EDIT, ATTACH, DETACH, CHANGE_CLASS }
 
-var canvas: WeaverProtoCanvas
-var column: WeaverProtoColumn
+var canvas: WeaverCanvas
+var column: WeaverColumn
 var node_id: int
 
 var _style: StyleBoxFlat
 
 
-func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: int) -> WeaverProtoCard:
+func setup(p_canvas: WeaverCanvas, p_column: WeaverColumn, p_node_id: int) -> WeaverCard:
 	canvas = p_canvas
 	column = p_column
 	node_id = p_node_id
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var model := canvas.model
-	_style = WeaverProtoStyle.box(WeaverProtoStyle.CARD_BG, WeaverProtoStyle.CARD_BORDER)
+	_style = WeaverStyle.box(WeaverStyle.CARD_BG, WeaverStyle.CARD_BORDER)
 	add_theme_stylebox_override("panel", _style)
 
 	var box := VBoxContainer.new()
@@ -54,7 +54,7 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 		tag.text = "effect"
 		tag.tooltip_text = "Plain CompositorEffect: runs as is, it has no setup/cleanup hooks."
 		tag.mouse_filter = Control.MOUSE_FILTER_PASS
-		tag.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+		tag.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 		title_row.add_child(tag)
 	
 	var buttons_row := HBoxContainer.new()
@@ -63,12 +63,12 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	
 	buttons_row.add_child(_make_script_button())
 	
-	var edit_button := WeaverProtoStyle.small_button("", "Edit in the Inspector")
-	edit_button.icon = WeaverProtoStyle.editor_icon("Edit")
+	var edit_button := WeaverStyle.small_button("", "Edit in the Inspector")
+	edit_button.icon = WeaverStyle.editor_icon("Edit")
 	edit_button.pressed.connect(func(): canvas.inspect_node(node_id))
 	buttons_row.add_child(edit_button)
 	
-	var delete_button := WeaverProtoStyle.small_button("×", "Remove the node from the WeaverSpider")
+	var delete_button := WeaverStyle.small_button("×", "Remove the node from the WeaverSpider")
 	delete_button.pressed.connect(func(): model.remove_node(node_id))
 	buttons_row.add_child(delete_button)
 	
@@ -82,9 +82,9 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	owns.add_theme_constant_override("v_separation", 4)
 	box.add_child(owns)
 	for resource in model.nodes[node_id].resources:
-		owns.add_child(WeaverProtoChip.new().setup(canvas, self, node_id, resource))
+		owns.add_child(WeaverChip.new().setup(canvas, self, node_id, resource))
 	
-	var add_button := WeaverProtoStyle.small_button("+ res", "Add a frame resource (prototype: kept in memory, not saved in the web)")
+	var add_button := WeaverStyle.small_button("+ res", "Add a frame resource (prototype: kept in memory, not saved in the web)")
 	add_button.pressed.connect(func(): model.add_resource(node_id))
 	owns.add_child(add_button)
 	
@@ -96,14 +96,14 @@ func setup(p_canvas: WeaverProtoCanvas, p_column: WeaverProtoColumn, p_node_id: 
 	if not reads.is_empty():
 		var reads_label := Label.new()
 		reads_label.text = "reads"
-		reads_label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+		reads_label.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 		box.add_child(reads_label)
 		var reads_box := HFlowContainer.new()
 		reads_box.add_theme_constant_override("h_separation", 4)
 		reads_box.add_theme_constant_override("v_separation", 4)
 		box.add_child(reads_box)
 		for b in reads:
-			reads_box.add_child(WeaverProtoChip.new().setup(canvas, self, b.producer, b.resource, node_id))
+			reads_box.add_child(WeaverChip.new().setup(canvas, self, b.producer, b.resource, node_id))
 	
 	
 	canvas.register_card(self)
@@ -119,7 +119,7 @@ func _make_script_button() -> MenuButton:
 	var button := MenuButton.new()
 	button.flat = true
 	button.focus_mode = Control.FOCUS_NONE
-	button.icon = WeaverProtoStyle.editor_icon("Script" if script != null else "ScriptCreate")
+	button.icon = WeaverStyle.editor_icon("Script" if script != null else "ScriptCreate")
 	if script != null:
 		button.tooltip_text = "Script: %s" % (script.resource_path if not script.resource_path.is_empty() else "built-in")
 	else:
@@ -128,14 +128,14 @@ func _make_script_button() -> MenuButton:
 	var popup := button.get_popup()
 	var scripts := canvas.node_scripts
 	if script != null:
-		popup.add_icon_item(WeaverProtoStyle.editor_icon("Script"), "Edit Script", ScriptMenu.EDIT)
-		popup.add_icon_item(WeaverProtoStyle.editor_icon("ScriptCreate"), "Attach Another Script...", ScriptMenu.ATTACH)
-		popup.add_icon_item(WeaverProtoStyle.editor_icon("ScriptRemove"), "Detach Script", ScriptMenu.DETACH)
+		popup.add_icon_item(WeaverStyle.editor_icon("Script"), "Edit Script", ScriptMenu.EDIT)
+		popup.add_icon_item(WeaverStyle.editor_icon("ScriptCreate"), "Attach Another Script...", ScriptMenu.ATTACH)
+		popup.add_icon_item(WeaverStyle.editor_icon("ScriptRemove"), "Detach Script", ScriptMenu.DETACH)
 	else:
-		popup.add_icon_item(WeaverProtoStyle.editor_icon("ScriptCreate"), "Attach Script...", ScriptMenu.ATTACH)
+		popup.add_icon_item(WeaverStyle.editor_icon("ScriptCreate"), "Attach Script...", ScriptMenu.ATTACH)
 	if res is WeaverWebNode:
 		popup.add_separator()
-		popup.add_icon_item(WeaverProtoStyle.editor_icon("RotateLeft"), "Change Class...", ScriptMenu.CHANGE_CLASS)
+		popup.add_icon_item(WeaverStyle.editor_icon("RotateLeft"), "Change Class...", ScriptMenu.CHANGE_CLASS)
 	popup.id_pressed.connect(func(id: int):
 		match id:
 			ScriptMenu.EDIT: scripts.edit_script(node_id)
@@ -149,15 +149,15 @@ func _make_script_button() -> MenuButton:
 func set_drop_state(state: DropState) -> void:
 	match state:
 		DropState.VALID:
-			_style.border_color = WeaverProtoStyle.VALID
+			_style.border_color = WeaverStyle.VALID
 			_style.set_border_width_all(2)
 			modulate = Color.WHITE
 		DropState.INVALID:
-			_style.border_color = WeaverProtoStyle.CARD_BORDER
+			_style.border_color = WeaverStyle.CARD_BORDER
 			_style.set_border_width_all(1)
 			modulate = Color(1, 1, 1, 0.4)
 		_:
-			_style.border_color = WeaverProtoStyle.CARD_BORDER
+			_style.border_color = WeaverStyle.CARD_BORDER
 			_style.set_border_width_all(1)
 			modulate = Color.WHITE
 

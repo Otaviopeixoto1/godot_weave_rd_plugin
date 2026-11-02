@@ -1,6 +1,6 @@
 @tool
 extends PanelContainer
-class_name WeaverProtoSlotHeader
+class_name WeaverSlotHeader
 
 #
 # Header of a view column or lane. The header IS the slot: it shows the slot's name with a type icon and color
@@ -22,15 +22,15 @@ var slot: Resource
 var _menu: PopupMenu
 
 
-func setup(p_kind: int, p_slot: Resource, error: String, webs: PackedStringArray, prefix: String = "") -> WeaverProtoSlotHeader:
+func setup(p_kind: int, p_slot: Resource, error: String, webs: PackedStringArray, prefix: String = "") -> WeaverSlotHeader:
 	kind = p_kind
 	slot = p_slot
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
-	var color := WeaverProtoStyle.VIEW_SLOT if kind == WeaverSlotLibrary.KIND_VIEW else WeaverProtoStyle.CAMERA_SLOT
-	var border := WeaverProtoStyle.INVALID if not error.is_empty() else color
-	add_theme_stylebox_override("panel", WeaverProtoStyle.box(Color(color, 0.22), border, 2 if not error.is_empty() else 1, 6, 4))
+	var color := WeaverStyle.VIEW_SLOT if kind == WeaverSlotLibrary.KIND_VIEW else WeaverStyle.CAMERA_SLOT
+	var border := WeaverStyle.INVALID if not error.is_empty() else color
+	add_theme_stylebox_override("panel", WeaverStyle.box(Color(color, 0.22), border, 2 if not error.is_empty() else 1, 6, 4))
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -39,7 +39,7 @@ func setup(p_kind: int, p_slot: Resource, error: String, webs: PackedStringArray
 	row.add_child(_icon("SubViewport" if kind == WeaverSlotLibrary.KIND_VIEW else "Camera3D"))
 
 	var label := Label.new()
-	label.text = prefix + WeaverProtoModel.slot_name(slot)
+	label.text = prefix + WeaverModel.slot_name(slot)
 	label.clip_text = true
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -49,10 +49,10 @@ func setup(p_kind: int, p_slot: Resource, error: String, webs: PackedStringArray
 	var tips: PackedStringArray = []
 
 	if slot == null:
-		label.add_theme_color_override("font_color", WeaverProtoStyle.INVALID)
+		label.add_theme_color_override("font_color", WeaverStyle.INVALID)
 		row.add_child(_icon("NodeWarning"))
-		var assign := WeaverProtoStyle.small_button("Assign", "Pick a slot for this %s" % ("view" if kind == WeaverSlotLibrary.KIND_VIEW else "lane"))
-		assign.add_theme_color_override("font_color", WeaverProtoStyle.INVALID)
+		var assign := WeaverStyle.small_button("Assign", "Pick a slot for this %s" % ("view" if kind == WeaverSlotLibrary.KIND_VIEW else "lane"))
+		assign.add_theme_color_override("font_color", WeaverStyle.INVALID)
 		assign.pressed.connect(func(): change_requested.emit())
 		row.add_child(assign)
 		tips.append(error)
@@ -63,7 +63,7 @@ func setup(p_kind: int, p_slot: Resource, error: String, webs: PackedStringArray
 			row.add_child(_icon("Unlinked" if missing else "StatusError"))
 			tips.append(error)
 		if slot.resource_path.is_empty():
-			label.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+			label.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 			label.text += "  (unsaved)"
 			tips.append("Not saved to its own file, so scenes can't share it. Use Change slot to pick or create a slot file.")
 		if not webs.is_empty():
@@ -109,7 +109,7 @@ func _on_menu_id_pressed(id: int) -> void:
 
 func _icon(icon_name: String) -> TextureRect:
 	var rect := TextureRect.new()
-	rect.texture = WeaverProtoStyle.editor_icon(icon_name)
+	rect.texture = WeaverStyle.editor_icon(icon_name)
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 	rect.mouse_filter = Control.MOUSE_FILTER_PASS
 	return rect

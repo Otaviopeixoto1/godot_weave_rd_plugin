@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name WeaverProtoArrow
+class_name WeaverArrow
 
 #
 # Short, thick arrow showing execution order: DOWN between the cards of a column, RIGHT between the stage columns of a
@@ -14,13 +14,13 @@ const THICKNESS := 5.0
 const HEAD := 13.0
 
 var direction := Direction.DOWN
-var color := WeaverProtoStyle.ARROW
+var color := WeaverStyle.ARROW
 # For RIGHT arrows: distance from the top to the arrow's center, so it lines up with the column headers instead of
 # floating in the middle of tall columns. Negative centers it.
 var top_offset := -1.0
 
 
-func setup(p_direction: Direction, p_tooltip: String = "", p_top_offset: float = -1.0) -> WeaverProtoArrow:
+func setup(p_direction: Direction, p_tooltip: String = "", p_top_offset: float = -1.0) -> WeaverArrow:
 	direction = p_direction
 	top_offset = p_top_offset
 	tooltip_text = p_tooltip

@@ -1,9 +1,9 @@
 @tool
 extends Node
-class_name WeaverProtoNodeScripts
+class_name WeaverNodeScripts
 
 #
-# Scripts and classes of the nodes on the cards (owned by WeaverProtoCanvas).
+# Scripts and classes of the nodes on the cards (owned by WeaverCanvas).
 #
 #  - Attach script: the editor's own ScriptCreateDialog (like the Scene dock's "Attach Script"), locked to the node's
 #    native class (WeaverWebNode, or CompositorEffect for plain effects). Loading an existing script works too.
@@ -41,7 +41,7 @@ func _cleanup() -> void:
 
 signal status(text: String, ok: bool)
 
-var model: WeaverProtoModel
+var model: WeaverModel
 
 var _dialog: ScriptCreateDialog
 var _script_node := -1
@@ -88,7 +88,7 @@ func add_node(view_id: int, lane_id: int, stage: int) -> void:
 	var on_chosen := func(type_name: String):
 		if model.add_node(view_id, lane_id, stage, "", type_name) < 0:
 			status.emit("\"%s\" is not a WeaverWebNode type." % type_name, false)
-	pick_node_class("Add a node to %s" % WeaverProtoModel.STAGE_NAMES[stage], "WeaverWebNode", on_chosen)
+	pick_node_class("Add a node to %s" % WeaverModel.STAGE_NAMES[stage], "WeaverWebNode", on_chosen)
 
 func change_class(node_id: int) -> void:
 	var res := model.node_resource(node_id)

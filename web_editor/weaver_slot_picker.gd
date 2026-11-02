@@ -1,6 +1,6 @@
 @tool
 extends PopupPanel
-class_name WeaverProtoSlotPicker
+class_name WeaverSlotPicker
 
 #
 # Popup used by "+ View", "+ Lane" and "Change slot". Nothing is added until a slot is chosen: pick an existing slot
@@ -24,7 +24,7 @@ func _init() -> void:
 	add_child(box)
 
 	_title = Label.new()
-	_title.add_theme_color_override("font_color", WeaverProtoStyle.MUTED_TEXT)
+	_title.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 	box.add_child(_title)
 
 	_list = ItemList.new()
@@ -46,7 +46,7 @@ func _init() -> void:
 	row.add_child(create)
 
 	_error = Label.new()
-	_error.add_theme_color_override("font_color", WeaverProtoStyle.INVALID)
+	_error.add_theme_color_override("font_color", WeaverStyle.INVALID)
 	box.add_child(_error)
 
 
@@ -69,12 +69,12 @@ func open(kind: int, title: String, used: Dictionary, extra_slots: Array, on_cho
 	_slots.sort_custom(func(a, b):
 		if used.has(a) != used.has(b):
 			return not used.has(a)
-		return WeaverProtoModel.slot_name(a).naturalnocasecmp_to(WeaverProtoModel.slot_name(b)) < 0)
+		return WeaverModel.slot_name(a).naturalnocasecmp_to(WeaverModel.slot_name(b)) < 0)
 
 	_list.clear()
-	var icon := WeaverProtoStyle.editor_icon("SubViewport" if kind == WeaverSlotLibrary.KIND_VIEW else "Camera3D")
+	var icon := WeaverStyle.editor_icon("SubViewport" if kind == WeaverSlotLibrary.KIND_VIEW else "Camera3D")
 	for slot in _slots:
-		var text := WeaverProtoModel.slot_name(slot)
+		var text := WeaverModel.slot_name(slot)
 		if slot.resource_path.is_empty():
 			text += "  (unsaved)"
 		var index := _list.add_item(text, icon)

@@ -1,6 +1,6 @@
 @tool
 extends ConfirmationDialog
-class_name WeaverProtoRenameDialog
+class_name WeaverRenameDialog
 
 #
 # Small dialog asking for a new name, shared by everything that can be renamed in the UI (slots, nodes).
