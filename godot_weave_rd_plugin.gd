@@ -4,6 +4,9 @@ extends EditorPlugin
 var main_panel_instance: WeaverPanel
 var profiler_debugger: WeaverProfilerDebugger
 var shader_includes: WeaverShaderIncludes
+var shader_classes: WeaverShaderClasses
+
+const REGENERATE_MENU_ITEM := "WeaveRD: Regenerate shader classes"
 
 func _enable_plugin() -> void:
 	# Add autoloads here.
@@ -30,9 +33,15 @@ func _enter_tree() -> void:
 	shader_includes = WeaverShaderIncludes.new()
 	add_child(shader_includes)
 
+	shader_classes = WeaverShaderClasses.new()
+	add_child(shader_classes)
+	add_tool_menu_item(REGENERATE_MENU_ITEM, shader_classes.regenerate_all)
+
 func _exit_tree() -> void:
 	remove_debugger_plugin(profiler_debugger)
 	shader_includes.queue_free()
+	remove_tool_menu_item(REGENERATE_MENU_ITEM)
+	shader_classes.queue_free()
 	if main_panel_instance:
 		main_panel_instance.queue_free()
 
@@ -48,6 +57,7 @@ func _make_visible(visible):
 # Runs before Play. Always true: a failed check must not stop the game from starting.
 func _build() -> bool:
 	shader_includes.check_before_run()
+	shader_classes.check_before_run()
 	return true
 
 
@@ -67,7 +77,7 @@ func _get_plugin_name():
 	return "WeaveRD"
 
 #func _handles(object: Object) -> bool:
-#	USE TO CONTROL AUTO FOCUS WHEN A NODE OF A SPECIFIC TYPE IS SELECTED	
+#	TODO: USE TO CONTROL AUTO FOCUS WHEN A NODE OF A SPECIFIC TYPE IS SELECTED
 
 func _get_plugin_icon():
 	return EditorInterface.get_editor_theme().get_icon("Node", "EditorIcons")
