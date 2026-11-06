@@ -153,7 +153,9 @@ static func generate(shader_path: String, script_class: String, warnings: Packed
 
 
 static func _binding_lines(binding: Dictionary, shader_path: String, used: Dictionary, warnings: PackedStringArray) -> PackedStringArray:
-	var raw: String = binding.name if not String(binding.name).is_empty() else String(binding.block_name).to_snake_case()
+	# A block without an instance name is reflected under its block name:
+	var anonymous: bool = String(binding.name).is_empty() or binding.name == binding.block_name
+	var raw: String = String(binding.block_name).to_snake_case() if anonymous else binding.name
 	var type: int = binding.uniform_type
 	var type_name := "RenderingDevice." + UNIFORM_TYPES[type]
 	var array: bool = binding.count != 1
