@@ -5,15 +5,18 @@ class_name WeaverCanvas
 #
 # Main canvas: views left to right in render order, lanes (WeaverSpiders) stacked inside each view, and
 # one column per stage inside each lane (WeaverSpider). Short arrows show the order: between views, between the stage
-# columns of a lane (WeaverSpider) and between the cards of a column. Resource links are not drawn at rest: hovering a
-# chip (or a matrix row) draws its links on a transparent overlay.
+# columns of a lane (WeaverSpider) and between the cards of a column.
+#
+# Resources (T-026): above the views, one WeaverSharedTrack per shared resource. Each lane shows its resources (drag
+# them into slots, + resource adds one) and the shared resources it provides. Hovering a chip (or a matrix row) outlines
+# every chip of that resource on a transparent overlay.
 #
 
 # Where the RIGHT arrows sit from the top, so they line up with the stage names / view headers.
 const COLUMN_ARROW_Y := 18.0
 const VIEW_ARROW_Y := 22.0
 
-signal highlight_changed(producer: int, resource: String)
+signal highlight_changed(resource: Resource)
 signal status_changed(text: String, ok: bool)
 
 var model: WeaverModel:
@@ -25,15 +28,19 @@ var model: WeaverModel:
 var node_scripts: WeaverNodeScripts
 
 var _scroll: ScrollContainer
+var _tracks_box: VBoxContainer
 var _views_box: HBoxContainer
 var _overlay: Control
 
-var _cards := {}     # node id -> WeaverCard
-var _out_chips := {} # resource key -> owned WeaverChip
-var _in_chips := {}  # resource key -> Array of read WeaverChips
+var _cards := {} # node id -> WeaverCard
+var _chips := {} # Resource -> Array of WeaverChips showing it
+var _slot_rows: Array = []
+var _tracks: Array = []
+var _view_panels: Array = []
+var _view_arrows: Array = []
 
-var _hl_producer := -1
-var _hl_resource := ""
+var _hl_resource: Resource
+var _resource_dialog: WeaverResourceDialog
 
 var _picker: WeaverSlotPicker
 var _rename_dialog: WeaverRenameDialog
@@ -59,13 +66,23 @@ func _init() -> void:
 	_confirm_dialog.confirmed.connect(func(): _confirm_action.call())
 	add_child(_confirm_dialog)
 
+	_resource_dialog = WeaverResourceDialog.new()
+	add_child(_resource_dialog)
+
 	_scroll = ScrollContainer.new()
 	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_scroll)
 
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 2)
+	_scroll.add_child(content)
+	_tracks_box = VBoxContainer.new()
+	_tracks_box.add_theme_constant_override("separation", 0)
+	content.add_child(_tracks_box)
 	_views_box = HBoxContainer.new()
 	_views_box.add_theme_constant_override("separation", 4)
-	_scroll.add_child(_views_box)
+	_views_box.sort_children.connect(_sync_tracks)
+	content.add_child(_views_box)
 
 	_overlay = Control.new()
 	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -81,22 +98,38 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_DRAG_END:
 		for card in _cards.values():
 			card.set_drop_state(WeaverCard.DropState.NONE)
+		for row in _slot_rows:
+			if is_instance_valid(row):
+				row.set_drop_hint(null)
 		show_status("", true)
 
 
 func rebuild() -> void:
 	_cards.clear()
-	_out_chips.clear()
-	_in_chips.clear()
+	_chips.clear()
+	_slot_rows.clear()
+	_tracks.clear()
+	_view_panels.clear()
+	_view_arrows.clear()
 	_saved_webs = WeaverSlotLibrary.collect_web_slots()
-	for child in _views_box.get_children():
-		_views_box.remove_child(child)
-		child.queue_free()
+	for box in [_views_box, _tracks_box]:
+		for child in box.get_children():
+			box.remove_child(child)
+			child.queue_free()
 
 	for vi in model.views.size():
 		if vi > 0:
-			_views_box.add_child(WeaverArrow.new().setup(WeaverArrow.Direction.RIGHT, "Renders after the view on the left.", VIEW_ARROW_Y))
-		_views_box.add_child(_build_view(model.views[vi], vi))
+			var arrow := WeaverArrow.new().setup(WeaverArrow.Direction.RIGHT, "Renders after the view on the left.", VIEW_ARROW_Y)
+			_view_arrows.append(arrow)
+			_views_box.add_child(arrow)
+		var panel := _build_view(model.views[vi], vi)
+		_view_panels.append(panel)
+		_views_box.add_child(panel)
+
+	for shared in model.shared_resources():
+		var track := WeaverSharedTrack.new().setup(self, shared)
+		_tracks.append(track)
+		_tracks_box.add_child(track)
 
 	if model.views.is_empty():
 		var hint := Label.new()
@@ -113,27 +146,63 @@ func register_card(card: WeaverCard) -> void:
 	_cards[card.node_id] = card
 
 func register_chip(chip: WeaverChip) -> void:
-	var key := WeaverModel.resource_key(chip.producer, chip.resource)
-	if chip.consumer < 0:
-		_out_chips[key] = chip
-	else:
-		if not _in_chips.has(key):
-			_in_chips[key] = []
-		_in_chips[key].append(chip)
+	if not _chips.has(chip.resource):
+		_chips[chip.resource] = []
+	_chips[chip.resource].append(chip)
 
-func set_highlight(producer: int, resource: String) -> void:
-	if producer == _hl_producer and resource == _hl_resource:
+func register_slot_row(row: WeaverSlotRow) -> void:
+	_slot_rows.append(row)
+
+func set_highlight(resource: Resource) -> void:
+	if resource == _hl_resource:
 		return
-	_hl_producer = producer
 	_hl_resource = resource
 	_overlay.queue_redraw()
-	highlight_changed.emit(producer, resource)
+	highlight_changed.emit(resource)
 
-# Marks every card as a valid or invalid drop target while a chip is being dragged.
-func begin_chip_drag(producer: int, resource: String) -> void:
-	for node_id in _cards:
-		var ok := model.bind_error(producer, node_id).is_empty() and not model.is_bound(producer, resource, node_id)
-		_cards[node_id].set_drop_state(WeaverCard.DropState.VALID if ok else WeaverCard.DropState.INVALID)
+# Dims the slots a dragged resource can't go into.
+func begin_resource_drag(resource: Resource) -> void:
+	for row in _slot_rows:
+		if is_instance_valid(row):
+			row.set_drop_hint(resource)
+
+# Scrolls to a node's card.
+func focus_node(node_id: int) -> void:
+	var card: Control = _cards.get(node_id)
+	if card != null and is_instance_valid(card):
+		_scroll.ensure_control_visible(card)
+
+func confirm(text: String, ok_text: String, action: Callable) -> void:
+	_confirm(text, ok_text, action)
+
+# Asks before turning a lane resource into a shared resource for a slot of a later view.
+func confirm_share(res: WeaverResource, node_id: int, slot: StringName) -> void:
+	var owner := model.resource_lane(res)
+	if owner.is_empty():
+		return
+	var view_index := model.views.find(owner.view)
+	var others := PackedStringArray()
+	for lane in owner.view.lanes:
+		if lane != owner.lane:
+			others.append(WeaverModel.slot_name(lane.slot))
+	var text := "Creates the shared resource \"%s\", provided by view %d (%s), and binds %s.%s to it." % [
+			res.resource_name, view_index, WeaverModel.slot_name(owner.lane.slot), model.node_name(node_id), slot]
+	if not others.is_empty():
+		text += "\nThe other lanes of view %d (%s) must provide %s too." % [view_index, ", ".join(others),
+				"a buffer" if res.kind == WeaverModel.BUFFER else "an image"]
+	var share := func():
+		var error := model.share_resource(res, node_id, slot)
+		if not error.is_empty():
+			show_status(error, false)
+	_confirm(text, "Share", share, "Share %s with later views?" % res.resource_name)
+
+func open_resource_dialog(view_id: int, lane_id: int) -> void:
+	var lane := model.get_lane(view_id, lane_id)
+	_resource_dialog.open(WeaverModel.slot_name(lane.get("slot")), func(resource_name: String, kind: int):
+		model.add_lane_resource(view_id, lane_id, resource_name, kind))
+
+func rename_resource(res: Resource) -> void:
+	_rename_dialog.open("Rename resource", res.resource_name, func(new_name: String): model.rename_resource(res, new_name))
 
 func show_status(text: String, ok: bool) -> void:
 	status_changed.emit(text, ok)
@@ -148,7 +217,8 @@ func rename_node(node_id: int) -> void:
 	var on_renamed := func(new_name: String): model.rename_node(node_id, new_name)
 	_rename_dialog.open("Rename node", model.node_name(node_id), on_renamed)
 
-func _confirm(text: String, ok_text: String, action: Callable) -> void:
+func _confirm(text: String, ok_text: String, action: Callable, dialog_title := "Please Confirm...") -> void:
+	_confirm_dialog.title = dialog_title
 	_confirm_action = action
 	_confirm_dialog.dialog_text = text
 	_confirm_dialog.ok_button_text = ok_text
@@ -289,6 +359,7 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 	var remove := WeaverStyle.small_button("×", "Remove this lane (WeaverSpider) from the view")
 	remove.pressed.connect(func(): _confirm("Remove lane \"%s\" and all its nodes from the view?" % WeaverModel.slot_name(lane.slot), "Remove", model.remove_lane.bind(view_id, lane_id)))
 	header.add_child(remove)
+	_build_lane_resources(box, view, lane)
 
 	# Stage columns left to right in run order, with a short arrow between each pair.
 	var columns := HBoxContainer.new()
@@ -305,29 +376,107 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 # Link overlay
 #
 func _draw_overlay() -> void:
-	if _hl_producer < 0:
+	if _hl_resource == null:
 		return
-	var key := WeaverModel.resource_key(_hl_producer, _hl_resource)
-	var source: Control = _out_chips.get(key)
-	if source == null or not is_instance_valid(source):
-		return
-	var color := WeaverModel.resource_color(_hl_producer, _hl_resource)
+	var color := WeaverModel.resource_color(_hl_resource)
 	var to_local := _overlay.get_global_transform().affine_inverse()
-
-	var source_rect := to_local * source.get_global_rect()
-	_overlay.draw_rect(source_rect.grow(2), color, false, 2.0)
-	var start := Vector2(source_rect.end.x, source_rect.get_center().y)
-
-	for chip in _in_chips.get(key, []):
-		if not is_instance_valid(chip):
+	var centers := PackedVector2Array()
+	for chip in _chips.get(_hl_resource, []):
+		if not is_instance_valid(chip) or not (chip as Control).is_visible_in_tree():
 			continue
 		var rect: Rect2 = to_local * (chip as Control).get_global_rect()
-		var end := Vector2(rect.position.x, rect.get_center().y)
-		var valid: bool = model.bind_error(_hl_producer, chip.consumer).is_empty()
-		var link_color := color if valid else WeaverStyle.INVALID
-		var bend := maxf(60.0, absf(end.x - start.x) * 0.4)
-		var points := PackedVector2Array()
-		for i in 25:
-			points.append(start.bezier_interpolate(start + Vector2(bend, 0), end - Vector2(bend, 0), end, i / 24.0))
-		_overlay.draw_polyline(points, link_color, 2.0, true)
-		_overlay.draw_rect(rect.grow(2), link_color, false, 2.0)
+		_overlay.draw_rect(rect.grow(2), color, false, 2.0)
+		centers.append(rect.get_center())
+	# A thin line through the chips, left to right, to follow the resource across the canvas.
+	var sorted := Array(centers)
+	sorted.sort_custom(func(a, b): return a.x < b.x or (a.x == b.x and a.y < b.y))
+	for i in range(1, sorted.size()):
+		_overlay.draw_line(sorted[i - 1], sorted[i], Color(color, 0.5), 1.0, true)
+
+
+# Resources of a lane (drag them into slots) and the shared resources it provides.
+func _build_lane_resources(box: VBoxContainer, view: Dictionary, lane: Dictionary) -> void:
+	var view_id: int = view.id
+	var lane_id: int = lane.id
+	var view_index := model.views.find(view)
+
+	var tray := HFlowContainer.new()
+	tray.add_theme_constant_override("h_separation", 4)
+	tray.add_theme_constant_override("v_separation", 4)
+	box.add_child(tray)
+	var label := Label.new()
+	label.text = "resources"
+	label.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
+	tray.add_child(label)
+	var lane_errors := model.lane_issues(lane_id)
+	for res in model.lane_resources(view_id, lane_id):
+		var version := model.lane_resource_version(res)
+		var creator := model.creator_of(res)
+		var problems: Array = lane_errors.filter(func(i): return " %s" % res.resource_name in String(i.message))
+		var tooltip := "%s %s, %s.\nDrag it into a slot. Right-click to rename." % [
+				"Buffer" if res.kind == WeaverModel.BUFFER else "Image", res.resource_name,
+				"created by %s" % model.node_name(creator) if creator >= 0 else "nothing creates it yet (bind a create slot to it)"]
+		for issue in problems:
+			tooltip = String(issue.message) + "\n" + tooltip
+		var chip := WeaverChip.new().setup(self, res, res.resource_name + (" v%d" % version if version > 0 else ""), WeaverChip.Look.SOLID, tooltip,
+				problems.any(func(i): return i.severity == "error"),
+				func(): _confirm("Remove the resource \"%s\" and its bindings from the lane?" % res.resource_name, "Remove", model.remove_lane_resource.bind(res)),
+				"Remove the resource")
+		chip.on_context = rename_resource.bind(res)
+		tray.add_child(chip)
+	var add := WeaverStyle.small_button("+ resource", "Add a resource to this lane (a buffer or an image)")
+	add.pressed.connect(open_resource_dialog.bind(view_id, lane_id))
+	tray.add_child(add)
+
+	# Shared resources this lane's view provides.
+	var provided: Array = model.shared_resources().filter(func(sr): return model.shared_source_view(sr) == view_index)
+	if not provided.is_empty():
+		var row := HFlowContainer.new()
+		row.add_theme_constant_override("h_separation", 4)
+		box.add_child(row)
+		var provides_label := Label.new()
+		provides_label.text = "provides"
+		provides_label.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
+		row.add_child(provides_label)
+		for shared in provided:
+			var source: WeaverResource = model.provided_by(view_id, lane_id, shared)
+			var chip: WeaverChip
+			if source != null:
+				chip = WeaverChip.new().setup(self, shared, "◆ %s ← %s v%d" % [shared.resource_name, source.resource_name, model.lane_resource_version(source)],
+						WeaverChip.Look.SOLID, "This lane provides %s as %s to the later views. Drop another resource of the lane here to change it." % [
+						source.resource_name, shared.resource_name], false, model.unprovide.bind(view_id, lane_id, shared), "Stop providing it")
+			else:
+				chip = WeaverChip.new().setup(self, shared, "needs: ◆ %s" % shared.resource_name, WeaverChip.Look.DASHED,
+						"Another lane of this view provides %s, so this one must too. Drop one of this lane's resources here." % shared.resource_name, true)
+			chip.on_can_drop = func(data) -> String:
+				if not data is Dictionary or data.get("kind") != "weave_resource" or not data.resource is WeaverResource:
+					return "Drop a resource of this lane."
+				var res: WeaverResource = data.resource
+				if not model.lane_resources(view_id, lane_id).has(res):
+					return "Only a resource of this lane can be provided by it."
+				if res.kind != shared.kind:
+					return "%s is %s." % [shared.resource_name, "a buffer" if shared.kind == WeaverModel.BUFFER else "an image"]
+				return ""
+			chip.on_drop = func(data): model.provide(view_id, lane_id, shared, data.resource)
+			row.add_child(chip)
+
+	# Lane problems that are not about one slot.
+	var other: Array = lane_errors.filter(func(i): return not model.lane_resources(view_id, lane_id).any(func(r): return " %s" % r.resource_name in String(i.message)))
+	if not other.is_empty():
+		var warning := Label.new()
+		var errors := other.filter(func(i): return i.severity == "error").size()
+		warning.text = "! %d issue%s" % [other.size(), "" if other.size() == 1 else "s"]
+		warning.tooltip_text = "\n".join(other.map(func(i): return String(i.message)))
+		warning.mouse_filter = Control.MOUSE_FILTER_STOP
+		warning.add_theme_color_override("font_color", WeaverStyle.INVALID if errors > 0 else WeaverStyle.MUTED_TEXT)
+		box.add_child(warning)
+
+
+# The track cells follow the widths of the view panels below.
+func _sync_tracks() -> void:
+	var view_widths: Array = _view_panels.map(func(p): return (p as Control).size.x if is_instance_valid(p) else 0.0)
+	var arrow_widths: Array = _view_arrows.map(func(a): return (a as Control).size.x if is_instance_valid(a) else 0.0)
+	for track in _tracks:
+		if is_instance_valid(track):
+			track.sync_widths(view_widths, arrow_widths)
+	_overlay.queue_redraw()

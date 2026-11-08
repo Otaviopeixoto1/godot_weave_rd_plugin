@@ -3,12 +3,15 @@ extends VBoxContainer
 class_name WeaverMatrix
 
 #
-# Resource matrix for one frame path (one lane per view). Columns are nodes in execution order,
-# rows are the resources those nodes own. W = owner, R = bound reader. Empty cells can be clicked
-# to bind, R cells to unbind. Cells that would break ordering are disabled and explain why.
+# Resource matrix for one frame path (one lane per view). Columns are nodes in execution order, rows are the lane
+# resources of the path's lanes and the shared resources (◆). A cell shows how the node's slot uses the resource:
+# C (creates, v1), R (reads vN), W (writes vN→vN+1); red cells have an error from WeaverWeb.validate() (in the tooltip).
+# Clicking a cell opens a menu: bind one of the node's slots that can take the resource (sharing it when it comes from an
+# earlier view), rebind a stale slot to the newest version, or unbind.
 #
 
 const CELL_SIZE := Vector2(110, 28)
+const ACCESS_LETTERS := ["R", "W", "C"]
 
 var model: WeaverModel
 var canvas: WeaverCanvas
@@ -16,7 +19,9 @@ var canvas: WeaverCanvas
 var _path_bar: HBoxContainer
 var _grid: GridContainer
 var _empty_hint: Label
-var _row_labels := {} # resource key -> Label
+var _row_labels := {} # Resource -> Label
+var _menu: PopupMenu
+var _menu_actions: Array[Callable] = []
 
 
 func setup(p_model: WeaverModel, p_canvas: WeaverCanvas) -> WeaverMatrix:
@@ -36,9 +41,13 @@ func setup(p_model: WeaverModel, p_canvas: WeaverCanvas) -> WeaverMatrix:
 	_grid.add_theme_constant_override("v_separation", 4)
 	scroll_box.add_child(_grid)
 	_empty_hint = Label.new()
-	_empty_hint.text = "No resources on this frame path. Add one with + res on a node card."
+	_empty_hint.text = "No resources on this frame path. Add one with + resource on a lane."
 	_empty_hint.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 	scroll_box.add_child(_empty_hint)
+
+	_menu = PopupMenu.new()
+	_menu.id_pressed.connect(func(id: int): _menu_actions[id].call())
+	add_child(_menu)
 
 	canvas.highlight_changed.connect(_on_highlight_changed)
 	return self
@@ -61,12 +70,20 @@ func rebuild() -> void:
 	for node_id in path:
 		_grid.add_child(_make_header(node_id))
 
-	var row_count := 0
-	for producer in path:
-		for resource in model.nodes[producer].resources:
-			_add_row(path, producer, resource)
-			row_count += 1
-	_empty_hint.visible = row_count == 0
+	var rows := 0
+	var lanes := model.frame_path()
+	for vi in model.views.size():
+		if lanes[vi] < 0:
+			continue
+		var view: Dictionary = model.views[vi]
+		var lane: Dictionary = view.lanes[lanes[vi]]
+		for res in model.lane_resources(view.id, lane.id):
+			_add_row(path, res, "V%d · %s" % [vi, res.resource_name])
+			rows += 1
+	for shared in model.shared_resources():
+		_add_row(path, shared, "◆ " + shared.resource_name)
+		rows += 1
+	_empty_hint.visible = rows == 0
 
 
 func _rebuild_path_bar() -> void:
@@ -103,65 +120,134 @@ func _make_header(node_id: int) -> Control:
 	label.clip_text = true
 	return label
 
-func _add_row(path: Array, producer: int, resource: String) -> void:
-	var key := WeaverModel.resource_key(producer, resource)
+
+# The slots of a node bound to a resource.
+func _bound_slots(node_id: int, res: Resource) -> Array:
+	return model.node_slots(node_id).filter(func(s):
+		var binding := model.slot_binding(node_id, s.name)
+		return binding != null and binding.resource == res)
+
+
+func _add_row(path: Array, res: Resource, text: String) -> void:
 	var row_label := Label.new()
-	row_label.text = "%s.%s" % [model.node_name(producer), resource]
+	row_label.text = text
 	row_label.mouse_filter = Control.MOUSE_FILTER_PASS
-	row_label.mouse_entered.connect(func(): canvas.set_highlight(producer, resource))
-	row_label.mouse_exited.connect(func(): canvas.set_highlight(-1, ""))
+	row_label.tooltip_text = "%s %s" % ["Shared resource" if res is WeaverSharedResource else "Lane resource", res.resource_name]
+	row_label.mouse_entered.connect(func(): canvas.set_highlight(res))
+	row_label.mouse_exited.connect(func(): canvas.set_highlight(null))
 	_grid.add_child(row_label)
-	_row_labels[key] = row_label
+	_row_labels[res] = row_label
 
-	# Lifetime: from the owner's column to the last column that reads the resource.
-	var first := path.find(producer)
-	var last := first
+	# Lifetime: from the first to the last node using it on this path.
+	var first := -1
+	var last := -1
 	for i in path.size():
-		if model.is_bound(producer, resource, path[i]):
-			last = maxi(last, i)
-
+		if not _bound_slots(path[i], res).is_empty():
+			first = i if first < 0 else first
+			last = i
 	for i in path.size():
-		_grid.add_child(_make_cell(producer, resource, path[i], i > first and i < last))
+		_grid.add_child(_make_cell(path[i], res, first >= 0 and i > first and i < last))
 
-func _make_cell(producer: int, resource: String, node_id: int, in_lifetime: bool) -> Button:
-	var color := WeaverModel.resource_color(producer, resource)
+
+func _make_cell(node_id: int, res: Resource, in_lifetime: bool) -> Button:
+	var color := WeaverModel.resource_color(res)
 	var cell := Button.new()
 	cell.custom_minimum_size = CELL_SIZE
 	cell.focus_mode = Control.FOCUS_NONE
-	cell.mouse_entered.connect(func(): canvas.set_highlight(producer, resource))
-	cell.mouse_exited.connect(func(): canvas.set_highlight(-1, ""))
+	cell.mouse_entered.connect(func(): canvas.set_highlight(res))
+	cell.mouse_exited.connect(func(): canvas.set_highlight(null))
 
-	var error := model.bind_error(producer, node_id)
 	var style: StyleBoxFlat
-	if node_id == producer:
-		cell.text = "W"
-		cell.tooltip_text = "Owned by \"%s\"." % model.node_name(producer)
-		cell.add_theme_color_override("font_color", WeaverStyle.DARK_TEXT)
-		cell.add_theme_color_override("font_hover_color", WeaverStyle.DARK_TEXT)
-		style = WeaverStyle.box(color, Color.TRANSPARENT, 0, 4, 2)
-	elif model.is_bound(producer, resource, node_id):
-		cell.text = "R" if error.is_empty() else "R !"
-		cell.tooltip_text = "Click to unbind." if error.is_empty() else "Broken binding: %s Click to unbind." % error
-		style = WeaverStyle.box(Color(color, 0.2), color if error.is_empty() else WeaverStyle.INVALID, 2, 4, 2)
-		cell.pressed.connect(func(): model.unbind(producer, resource, node_id))
-	elif error.is_empty():
-		cell.tooltip_text = "Click to bind \"%s\" to %s." % [model.node_name(node_id), resource]
-		style = WeaverStyle.box(Color(color, 0.12 if in_lifetime else 0.0), Color(1, 1, 1, 0.12), 1, 4, 2)
-		cell.pressed.connect(func(): model.bind(producer, resource, node_id))
+	var bound := _bound_slots(node_id, res)
+	if not bound.is_empty():
+		var parts := PackedStringArray()
+		var tips := PackedStringArray()
+		var error := false
+		for s in bound:
+			var version := model.slot_version_text(node_id, s.name)
+			parts.append("%s %s" % [ACCESS_LETTERS[s.access], version])
+			var issue := model.slot_issue(node_id, s.name)
+			if not issue.is_empty():
+				tips.append(String(issue.message))
+				error = error or issue.severity == "error"
+			else:
+				tips.append("%s.%s %s." % [model.node_name(node_id), s.name, version])
+		cell.text = ("! " if error else "") + " ".join(parts)
+		cell.tooltip_text = "\n".join(tips) + "\nClick for options."
+		var creates: bool = bound.any(func(s): return s.access == WeaverResourceHandle.ACCESS_CREATE)
+		if creates:
+			cell.add_theme_color_override("font_color", WeaverStyle.DARK_TEXT)
+			cell.add_theme_color_override("font_hover_color", WeaverStyle.DARK_TEXT)
+			style = WeaverStyle.box(color, WeaverStyle.INVALID if error else Color.TRANSPARENT, 2 if error else 0, 4, 2)
+		else:
+			style = WeaverStyle.box(Color(color, 0.2), WeaverStyle.INVALID if error else color, 2, 4, 2)
+		cell.pressed.connect(_open_menu.bind(cell, node_id, res))
 	else:
-		cell.text = "–"
-		cell.tooltip_text = error
-		cell.disabled = true
-		style = WeaverStyle.box(Color(0, 0, 0, 0.25), Color.TRANSPARENT, 0, 4, 2)
+		var candidates := _candidates(node_id, res)
+		if candidates.is_empty():
+			cell.text = "–"
+			cell.tooltip_text = _refusal(node_id, res)
+			cell.disabled = true
+			style = WeaverStyle.box(Color(0, 0, 0, 0.25), Color.TRANSPARENT, 0, 4, 2)
+		else:
+			cell.tooltip_text = "Click to bind %s to a slot of %s." % [res.resource_name, model.node_name(node_id)]
+			style = WeaverStyle.box(Color(color, 0.12 if in_lifetime else 0.0), Color(1, 1, 1, 0.12), 1, 4, 2)
+			cell.pressed.connect(_open_menu.bind(cell, node_id, res))
 	WeaverStyle.apply_button(cell, style)
 	return cell
 
 
-func _on_highlight_changed(producer: int, resource: String) -> void:
-	var key := WeaverModel.resource_key(producer, resource)
-	for label_key in _row_labels:
-		var label: Label = _row_labels[label_key]
-		if label_key == key:
-			label.add_theme_color_override("font_color", WeaverModel.resource_color(producer, resource))
+# Slots of the node that can take the resource: [{ slot, action }].
+func _candidates(node_id: int, res: Resource) -> Array:
+	var result: Array = []
+	for s in model.node_slots(node_id):
+		var action := model.drop_action(node_id, s.name, res)
+		if action.action != "refuse":
+			result.append({ "slot": s, "action": action })
+	return result
+
+func _refusal(node_id: int, res: Resource) -> String:
+	var slots := model.node_slots(node_id)
+	if slots.is_empty():
+		return "%s has no resource slots." % model.node_name(node_id)
+	return model.drop_action(node_id, slots[0].name, res).reason
+
+
+func _open_menu(cell: Control, node_id: int, res: Resource) -> void:
+	_menu.clear()
+	_menu_actions.clear()
+	for s in _bound_slots(node_id, res):
+		var slot_name: StringName = s.name
+		var issue := model.slot_issue(node_id, slot_name)
+		if not issue.is_empty() and issue.severity == "error" and "expects" in String(issue.message):
+			_add_item("Rebind %s to the newest version" % slot_name, model.rebind_to_newest.bind(node_id, slot_name))
+		_add_item("Unbind %s" % slot_name, model.unbind_slot.bind(node_id, slot_name))
+	for candidate in _candidates(node_id, res):
+		var slot: Dictionary = candidate.slot
+		var slot_name: StringName = slot.name
+		var bound := model.slot_binding(node_id, slot_name)
+		if bound != null and bound.resource == res:
+			continue
+		var replaces := " (replaces %s)" % bound.resource.resource_name if bound != null and bound.resource != null else ""
+		if candidate.action.action == "share":
+			_add_item("Share and bind to %s (%s)%s" % [slot_name, ACCESS_LETTERS[slot.access], replaces], canvas.confirm_share.bind(res, node_id, slot_name))
+		else:
+			_add_item("Bind to %s (%s)%s" % [slot_name, ACCESS_LETTERS[slot.access], replaces], func(): model.bind_slot(node_id, slot_name, res))
+	if _menu_actions.is_empty():
+		return
+	var rect := cell.get_screen_position()
+	_menu.position = Vector2i(rect + Vector2(0, cell.size.y))
+	_menu.popup()
+
+func _add_item(text: String, action: Callable) -> void:
+	_menu.add_item(text, _menu_actions.size())
+	_menu_actions.append(action)
+
+
+func _on_highlight_changed(resource: Resource) -> void:
+	for res in _row_labels:
+		var label: Label = _row_labels[res]
+		if res == resource:
+			label.add_theme_color_override("font_color", WeaverModel.resource_color(res))
 		else:
 			label.remove_theme_color_override("font_color")

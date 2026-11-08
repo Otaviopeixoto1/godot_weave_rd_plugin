@@ -13,12 +13,12 @@ class_name WeaverModel
 #    In the WeaverSpider the column order is the order of its weaver_nodes array, filtered by stage.
 #  - Nodes are the WeaverWebNodes (or plain CompositorEffects) of the WeaverSpider.
 #
-# Prototype only: the frame resources of each node (named strings) and the bindings between them are still kept in
-# memory, they are NOT saved in the web. A binding means "consumer reads producer's resource", and it is valid when
-# the producer runs before the consumer in the same frame.
+# Resources (T-025/T-026) are saved in the web: each lane (WeaverSpider) has its resources, the bindings of its nodes'
+# slots (WeaverResourceBinding) and the lane resources it provides to shared resources (WeaverSharedOutput); the web has
+# the shared resources. Slots come from the node scripts (WeaverWebNode.get_resource_slots()). Errors and versions come
+# from the module (WeaverWeb.validate() and get_resource_versions()), recomputed on every change (_analyze()).
 #
-# Ids are given per resource instance and kept for the editor session, so reload() keeps the frame resources and
-# bindings of nodes that are still in the web.
+# Ids are given per resource instance and kept for the editor session.
 #
 
 signal changed
@@ -36,10 +36,15 @@ var dirty := false
 # Array of { id, resource: WeaverView, slot, path_lane, kept, lanes: Array of { id, resource: WeaverSpider, slot, kept, columns: Array (STAGE_COUNT) of Array[int] } }
 # kept: entries of the resource array the UI doesn't show (null rows the inspector added, duplicates). They are written back at the end.
 var views: Array = []
-# node id -> { id, resource: WeaverWebNode or CompositorEffect, resources: Array[String] (prototype frame resources) }
+# node id -> { id, resource: WeaverWebNode or CompositorEffect }
 var nodes: Dictionary = {}
-# Array of { producer: int, resource: String, consumer: int }
-var bindings: Array = []
+
+# WeaverWeb.validate() of the last change, and its resource issues indexed for the UI.
+var issues: Array = []
+var _slot_issues := {} # "node_id/slot" -> issue (errors win over warnings)
+var _lane_issues := {} # lane id -> Array of issues about the lane (no node)
+# "node_id/slot" -> get_resource_versions() record: every lane under the frame path of the views before it.
+var _versions := {}
 
 var _kept_views: Array = []
 var _ids := {} # Resource -> id
@@ -50,12 +55,10 @@ var _next_id := 1
 # Web
 #
 
-# Opens a web for editing. Frame resources and bindings of the previous web are dropped.
 func open_web(p_web: WeaverWeb) -> void:
 	web = p_web
 	_ids.clear()
 	nodes.clear()
-	bindings.clear()
 	views.clear()
 	_set_dirty(false)
 	reload()
@@ -65,7 +68,6 @@ func close_web() -> void:
 
 # Parses the web again (after it was edited somewhere else, e.g. in the inspector).
 func reload() -> void:
-	var old_nodes := nodes
 	var old_path_lanes := {}
 	for view in views:
 		old_path_lanes[view.id] = view.path_lane
@@ -87,13 +89,12 @@ func reload() -> void:
 					view.kept.append(spider)
 					continue
 				seen[spider] = true
-				view.lanes.append(_parse_lane(spider, old_nodes, seen))
+				view.lanes.append(_parse_lane(spider, seen))
 			views.append(view)
 
-	bindings = bindings.filter(func(b): return nodes.has(b.producer) and nodes.has(b.consumer))
 	_notify()
 
-func _parse_lane(spider: WeaverSpider, old_nodes: Dictionary, seen: Dictionary) -> Dictionary:
+func _parse_lane(spider: WeaverSpider, seen: Dictionary) -> Dictionary:
 	var columns: Array = []
 	for i in STAGE_COUNT:
 		columns.append([])
@@ -105,7 +106,7 @@ func _parse_lane(spider: WeaverSpider, old_nodes: Dictionary, seen: Dictionary) 
 			continue
 		seen[entry] = true
 		var id := _id_for(entry)
-		nodes[id] = { "id": id, "resource": entry, "resources": old_nodes.get(id, {}).get("resources", []) }
+		nodes[id] = { "id": id, "resource": entry }
 		(columns[stage] as Array).append(id)
 	return lane
 
@@ -221,18 +222,24 @@ func add_node(view_id: int, lane_id: int, stage: int, node_name_: String = "", t
 	elif type_name == "WeaverWebNode":
 		res.resource_name = _unique_node_name()
 	var id := _id_for(res)
-	nodes[id] = { "id": id, "resource": res, "resources": [] }
+	nodes[id] = { "id": id, "resource": res }
 	(lane.columns[stage] as Array).append(id)
 	_edited()
 	return id
 
+# Removes the node and its slot bindings. Bindings that expected its writes go back to the created/provided version.
 func remove_node(node_id: int) -> void:
 	var loc := locate(node_id)
 	if loc.is_empty():
 		return
+	var res := node_resource(node_id)
 	(_column_at(loc) as Array).erase(node_id)
 	nodes.erase(node_id)
-	bindings = bindings.filter(func(b): return b.producer != node_id and b.consumer != node_id)
+	for spider in _all_spiders():
+		spider.bindings = Array(spider.bindings).filter(func(b): return b != null and b.node != res)
+		for b in spider.bindings:
+			if b.after == res:
+				b.after = null
 	_edited()
 
 func rename_node(node_id: int, new_name: String) -> void:
@@ -269,6 +276,15 @@ func change_node_type(node_id: int, type_name: String) -> String:
 	_ids.erase(old)
 	_ids[res] = node_id
 	node.resource = res
+	# Bindings follow the node (they are checked against the new class's slots by the validation).
+	for spider in _all_spiders():
+		for b in spider.bindings:
+			if b == null:
+				continue
+			if b.node == old:
+				b.node = res
+			if b.after == old:
+				b.after = res
 	_edited()
 	return ""
 
@@ -303,6 +319,14 @@ func move_node(node_id: int, view_id: int, lane_id: int, stage: int, index: int)
 		index -= 1
 	from_col.remove_at(loc.index)
 	to_col.insert(clampi(index, 0, to_col.size()), node_id)
+	# Bindings live in the node's lane: they move with it (and show as broken if their resources stayed behind).
+	var from_spider: WeaverSpider = views[loc.view].lanes[loc.lane].resource
+	var to_spider: WeaverSpider = lane.resource
+	if from_spider != to_spider:
+		var res := node_resource(node_id)
+		var moving: Array = Array(from_spider.bindings).filter(func(b): return b != null and b.node == res)
+		from_spider.bindings = Array(from_spider.bindings).filter(func(b): return not moving.has(b))
+		to_spider.bindings = Array(to_spider.bindings) + moving
 	_edited()
 
 # Which lane (WeaverSpider) of a view the matrix shows. Editor state only.
@@ -372,74 +396,407 @@ func _slot_file_error(slot: Resource) -> String:
 
 
 #
-# Frame resources (prototype, in memory only)
+# Resources (saved in the web, T-025)
 #
-func add_resource(node_id: int) -> String:
-	var node: Dictionary = nodes.get(node_id, {})
-	if node.is_empty():
-		return ""
-	var resources: Array = node.resources
-	var n := resources.size() + 1
-	var res_name := "res_%d" % n
-	while resources.has(res_name):
-		n += 1
-		res_name = "res_%d" % n
-	resources.append(res_name)
-	_notify()
-	return res_name
+const BUFFER := WeaverResourceHandle.TYPE_BUFFER
+const IMAGE := WeaverResourceHandle.TYPE_IMAGE
 
-func remove_resource(node_id: int, resource: String) -> void:
-	var node: Dictionary = nodes.get(node_id, {})
-	if node.is_empty():
+# Slots of a node: Array of { name, access, kind, handle_class } (none for plain CompositorEffects).
+func node_slots(node_id: int) -> Array:
+	var res := node_resource(node_id)
+	return res.get_resource_slots() if res is WeaverWebNode else []
+
+func slot_info(node_id: int, slot: StringName) -> Dictionary:
+	for s in node_slots(node_id):
+		if s.name == slot:
+			return s
+	return {}
+
+func lane_resources(view_id: int, lane_id: int) -> Array:
+	var lane := get_lane(view_id, lane_id)
+	if lane.is_empty():
+		return []
+	return Array((lane.resource as WeaverSpider).resources).filter(func(r): return r != null)
+
+func shared_resources() -> Array:
+	if web == null:
+		return []
+	return Array(web.shared_resources).filter(func(r): return r != null)
+
+func add_lane_resource(view_id: int, lane_id: int, resource_name: String, kind: int) -> WeaverResource:
+	var lane := get_lane(view_id, lane_id)
+	if lane.is_empty():
+		return null
+	var res := WeaverResource.new()
+	res.resource_name = _unique_name(resource_name, lane_resources(view_id, lane_id))
+	res.kind = kind
+	var spider: WeaverSpider = lane.resource
+	spider.resources = Array(spider.resources) + [res]
+	_edited()
+	return res
+
+func rename_resource(res: Resource, new_name: String) -> void:
+	if res == null or new_name.strip_edges().is_empty():
 		return
-	(node.resources as Array).erase(resource)
-	bindings = bindings.filter(func(b): return not (b.producer == node_id and b.resource == resource))
-	_notify()
+	res.resource_name = new_name.strip_edges()
+	_edited()
+
+# Removes a lane resource, the bindings to it and what it provides.
+func remove_lane_resource(res: WeaverResource) -> void:
+	var owner := resource_lane(res)
+	if owner.is_empty():
+		return
+	var spider: WeaverSpider = owner.lane.resource
+	spider.resources = Array(spider.resources).filter(func(r): return r != res)
+	spider.bindings = Array(spider.bindings).filter(func(b): return b != null and b.resource != res)
+	spider.shared_outputs = Array(spider.shared_outputs).filter(func(o): return o != null and o.resource != res)
+	_edited()
+
+# Removes a shared resource, what provides it and the bindings to it.
+func remove_shared(shared: WeaverSharedResource) -> void:
+	if web == null:
+		return
+	web.shared_resources = Array(web.shared_resources).filter(func(r): return r != shared)
+	for spider in _all_spiders():
+		spider.shared_outputs = Array(spider.shared_outputs).filter(func(o): return o != null and o.shared != shared)
+		spider.bindings = Array(spider.bindings).filter(func(b): return b != null and b.resource != shared)
+	_edited()
+
+# The lane owning a lane resource: { view, lane } (model dictionaries), or {}.
+func resource_lane(res: WeaverResource) -> Dictionary:
+	for view in views:
+		for lane in view.lanes:
+			if Array((lane.resource as WeaverSpider).resources).has(res):
+				return { "view": view, "lane": lane }
+	return {}
+
+func slot_binding(node_id: int, slot: StringName) -> WeaverResourceBinding:
+	var loc := locate(node_id)
+	if loc.is_empty():
+		return null
+	var spider: WeaverSpider = views[loc.view].lanes[loc.lane].resource
+	return spider.find_binding(node_resource(node_id), slot)
+
+# What a drop of `res` on a node's slot does: { action: "bind" | "share" | "refuse", reason: String }.
+# from_view / from_lane: where the dragged resource comes from (for lane resources: their lane).
+func drop_action(node_id: int, slot: StringName, res: Resource) -> Dictionary:
+	var info := slot_info(node_id, slot)
+	var loc := locate(node_id)
+	if info.is_empty() or loc.is_empty() or res == null:
+		return _refuse("Unknown slot.")
+	if res.kind != info.type:
+		return _refuse("%s is %s slot, %s is %s." % [slot, _kind_phrase(info.type), res.resource_name, _kind_phrase(res.kind)])
+	if res is WeaverSharedResource:
+		if info.access == WeaverResourceHandle.ACCESS_CREATE:
+			return _refuse("A create slot makes a resource of its lane: it can't take a shared resource.")
+		var source := shared_source_view(res)
+		if source >= 0 and loc.view <= source:
+			return _refuse("%s is provided by view %d: only later views can use it." % [res.resource_name, source])
+		return { "action": "bind", "reason": "Bind %s to %s.%s" % [res.resource_name, node_name(node_id), slot] }
+	var owner := resource_lane(res)
+	if owner.is_empty():
+		return _refuse("%s is not in this web." % res.resource_name)
+	var owner_view := views.find(owner.view)
+	if owner.lane == views[loc.view].lanes[loc.lane]:
+		if info.access == WeaverResourceHandle.ACCESS_CREATE:
+			var creator := creator_of(res)
+			if creator >= 0 and creator != node_id:
+				return _refuse("%s is already created by %s." % [res.resource_name, node_name(creator)])
+		return { "action": "bind", "reason": "Bind %s to %s.%s" % [res.resource_name, node_name(node_id), slot] }
+	if owner_view == loc.view:
+		return _refuse("Lanes of one view never run in the same frame.")
+	if owner_view > loc.view:
+		return _refuse("%s belongs to view %d, which renders after this one." % [res.resource_name, owner_view])
+	if info.access == WeaverResourceHandle.ACCESS_CREATE:
+		return _refuse("A create slot makes a resource of its own lane.")
+	return { "action": "share", "reason": "Share %s with later views and bind it to %s.%s" % [res.resource_name, node_name(node_id), slot] }
+
+# Binds a slot (replacing its binding). `after` is the newest producer at the node's place, so the binding starts valid.
+func bind_slot(node_id: int, slot: StringName, res: Resource) -> String:
+	var action := drop_action(node_id, slot, res)
+	if action.action != "bind":
+		return action.reason
+	var loc := locate(node_id)
+	var spider: WeaverSpider = views[loc.view].lanes[loc.lane].resource
+	var node_res := node_resource(node_id)
+	var binding := WeaverResourceBinding.new()
+	binding.node = node_res
+	binding.slot = slot
+	binding.resource = res
+	binding.after = null if slot_info(node_id, slot).access == WeaverResourceHandle.ACCESS_CREATE else newest_producer(node_id, res)
+	spider.bindings = Array(spider.bindings).filter(func(b): return b != null and not (b.node == node_res and b.slot == slot)) + [binding]
+	_edited()
+	return ""
+
+func unbind_slot(node_id: int, slot: StringName) -> void:
+	var loc := locate(node_id)
+	if loc.is_empty():
+		return
+	var spider: WeaverSpider = views[loc.view].lanes[loc.lane].resource
+	var node_res := node_resource(node_id)
+	spider.bindings = Array(spider.bindings).filter(func(b): return b != null and not (b.node == node_res and b.slot == slot))
+	_edited()
+
+# Points a stale binding at the newest version.
+func rebind_to_newest(node_id: int, slot: StringName) -> void:
+	var binding := slot_binding(node_id, slot)
+	if binding == null:
+		return
+	binding.after = newest_producer(node_id, binding.resource)
+	_edited()
+
+# Creates a shared resource from a lane resource of an earlier view, provided by its lane, and binds the slot to it.
+func share_resource(res: WeaverResource, node_id: int, slot: StringName) -> String:
+	var owner := resource_lane(res)
+	if owner.is_empty() or web == null:
+		return "Unknown resource."
+	var shared := WeaverSharedResource.new()
+	shared.resource_name = _unique_name(res.resource_name, shared_resources())
+	shared.kind = res.kind
+	web.shared_resources = Array(web.shared_resources) + [shared]
+	_set_output(owner.lane.resource, shared, res)
+	var error := bind_slot(node_id, slot, shared)
+	if not error.is_empty():
+		_edited()
+	return error
+
+# Makes a lane provide one of its resources to a shared resource (replaces what it provided before).
+func provide(view_id: int, lane_id: int, shared: WeaverSharedResource, res: WeaverResource) -> String:
+	var lane := get_lane(view_id, lane_id)
+	if lane.is_empty() or shared == null or res == null:
+		return "Unknown lane or resource."
+	if not Array((lane.resource as WeaverSpider).resources).has(res):
+		return "%s is not a resource of this lane." % res.resource_name
+	if res.kind != shared.kind:
+		return "%s is %s, %s is %s." % [res.resource_name, _kind_phrase(res.kind), shared.resource_name, _kind_phrase(shared.kind)]
+	_set_output(lane.resource, shared, res)
+	_edited()
+	return ""
+
+func unprovide(view_id: int, lane_id: int, shared: WeaverSharedResource) -> void:
+	var lane := get_lane(view_id, lane_id)
+	if lane.is_empty():
+		return
+	var spider: WeaverSpider = lane.resource
+	spider.shared_outputs = Array(spider.shared_outputs).filter(func(o): return o != null and o.shared != shared)
+	_edited()
+
+# The lane resource a lane provides to a shared resource, or null.
+func provided_by(view_id: int, lane_id: int, shared: WeaverSharedResource) -> WeaverResource:
+	var lane := get_lane(view_id, lane_id)
+	if lane.is_empty():
+		return null
+	for o in (lane.resource as WeaverSpider).shared_outputs:
+		if o != null and o.shared == shared:
+			return o.resource
+	return null
+
+# Index of the first view whose lanes provide the shared resource, -1 when none does.
+func shared_source_view(shared: Resource) -> int:
+	for vi in views.size():
+		for lane in views[vi].lanes:
+			for o in (lane.resource as WeaverSpider).shared_outputs:
+				if o != null and o.shared == shared:
+					return vi
+	return -1
+
+# The node whose create slot is bound to a lane resource, -1 when none.
+func creator_of(res: WeaverResource) -> int:
+	var owner := resource_lane(res)
+	if owner.is_empty():
+		return -1
+	for b in (owner.lane.resource as WeaverSpider).bindings:
+		if b != null and b.resource == res and b.node != null and _ids.has(b.node):
+			var id: int = _ids[b.node]
+			if slot_info(id, b.slot).get("access", -1) == WeaverResourceHandle.ACCESS_CREATE:
+				return id
+	return -1
+
+# The node whose write is the newest version of `res` where node_id runs (null: as created, or as provided), following the
+# frame path of the matrix for shared resources.
+func newest_producer(node_id: int, res: Resource) -> WeaverWebNode:
+	var loc := locate(node_id)
+	if loc.is_empty():
+		return null
+	var producer: WeaverWebNode = null
+	var path := frame_path()
+	for vi in loc.view + 1:
+		var li: int = loc.lane if vi == loc.view else path[vi]
+		if li < 0:
+			continue
+		var lane: Dictionary = views[vi].lanes[li]
+		if vi < loc.view and not (res is WeaverSharedResource):
+			continue
+		for id in lane_order(lane):
+			if id == node_id:
+				return producer
+			var b: WeaverResourceBinding = (lane.resource as WeaverSpider).find_binding(node_resource(id), _slot_of(lane, id, res))
+			if b == null or b.resource != res:
+				continue
+			var access: int = slot_info(id, b.slot).get("access", -1)
+			if access == WeaverResourceHandle.ACCESS_WRITE:
+				producer = node_resource(id)
+			elif access == WeaverResourceHandle.ACCESS_CREATE:
+				producer = null
+		if vi < loc.view and res is WeaverSharedResource and provided_by(views[vi].id, lane.id, res) != null:
+			producer = null
+	return producer
+
+# Node ids of a lane in execution order.
+func lane_order(lane: Dictionary) -> Array:
+	var order: Array = []
+	for s in STAGE_COUNT:
+		order.append_array(lane.columns[s])
+	return order
+
+# The lane index the matrix uses for each view (-1 for a view without lanes).
+func frame_path() -> PackedInt32Array:
+	var path := PackedInt32Array()
+	for view in views:
+		var lanes: Array = view.lanes
+		path.append(clampi(view.path_lane, 0, lanes.size() - 1) if not lanes.is_empty() else -1)
+	return path
+
+func _slot_of(lane: Dictionary, node_id: int, res: Resource) -> StringName:
+	for b in (lane.resource as WeaverSpider).bindings:
+		if b != null and b.node == node_resource(node_id) and b.resource == res:
+			return b.slot
+	return &""
+
+func _set_output(spider: WeaverSpider, shared: WeaverSharedResource, res: WeaverResource) -> void:
+	var output := WeaverSharedOutput.new()
+	output.shared = shared
+	output.resource = res
+	spider.shared_outputs = Array(spider.shared_outputs).filter(func(o): return o != null and o.shared != shared) + [output]
+
+func _refuse(reason: String) -> Dictionary:
+	return { "action": "refuse", "reason": reason }
+
+static func _kind_phrase(kind: int) -> String:
+	return "a buffer" if kind == WeaverResourceHandle.TYPE_BUFFER else "an image"
+
+func _unique_name(base: String, taken_from: Array) -> String:
+	var base_name := base.strip_edges() if not base.strip_edges().is_empty() else "resource"
+	var taken := {}
+	for r in taken_from:
+		taken[r.resource_name] = true
+	var candidate := base_name
+	var n := 2
+	while taken.has(candidate):
+		candidate = "%s_%d" % [base_name, n]
+		n += 1
+	return candidate
+
+func _all_spiders() -> Array:
+	var spiders: Array = []
+	for view in views:
+		for lane in view.lanes:
+			spiders.append(lane.resource)
+	return spiders
 
 
 #
-# Bindings (prototype, in memory only)
+# Validation and versions (from the module)
 #
 
-# Returns "" when consumer may read a resource owned by producer, otherwise the reason it can't.
-func bind_error(producer: int, consumer: int) -> String:
-	if producer == consumer:
-		return "A node can't read its own resource."
-	var p := locate(producer)
-	var c := locate(consumer)
-	if p.is_empty() or c.is_empty():
-		return "Unknown node."
-	if p.view < c.view:
+# The worst issue of a slot ({} when it is fine).
+func slot_issue(node_id: int, slot: StringName) -> Dictionary:
+	return _slot_issues.get("%d/%s" % [node_id, slot], {})
+
+func lane_issues(lane_id: int) -> Array:
+	return _lane_issues.get(lane_id, [])
+
+# Issues that mention a shared resource (source view and lane problems, unused...).
+func shared_issues(shared: WeaverSharedResource) -> Array:
+	var needle := "shared resource %s" % shared.resource_name
+	return issues.filter(func(i): return i.has("node") and needle in String(i.message))
+
+# get_resource_versions() record of a bound slot ({} when unbound or unknown).
+func slot_version(node_id: int, slot: StringName) -> Dictionary:
+	return _versions.get("%d/%s" % [node_id, slot], {})
+
+# "v1", "v2", "v1→v2" for a slot, "" when unknown.
+func slot_version_text(node_id: int, slot: StringName) -> String:
+	var record := slot_version(node_id, slot)
+	if record.is_empty():
 		return ""
-	if p.view > c.view:
-		return "\"%s\" renders after this view." % slot_name(views[p.view].slot)
-	if p.lane != c.lane:
-		return "Lanes in one view never run in the same frame."
-	if p.stage < c.stage or (p.stage == c.stage and p.index < c.index):
-		return ""
-	return "\"%s\" runs after this node." % node_name(producer)
+	if record.version_in == record.version_out or record.access == WeaverResourceHandle.ACCESS_CREATE:
+		return "v%d" % record.version_out
+	return "v%d→v%d" % [record.version_in, record.version_out]
 
-func bind(producer: int, resource: String, consumer: int) -> String:
-	var err := bind_error(producer, consumer)
-	if err.is_empty() and is_bound(producer, resource, consumer):
-		err = "Already bound."
-	if err.is_empty():
-		bindings.append({ "producer": producer, "resource": resource, "consumer": consumer })
-		_notify()
-	return err
+# Newest version of a lane resource at the end of its lane (0 when nothing made it).
+func lane_resource_version(res: WeaverResource) -> int:
+	var version := 0
+	for record in _versions.values():
+		if record.resource == res:
+			version = maxi(version, record.version_out)
+	return version
 
-func unbind(producer: int, resource: String, consumer: int) -> void:
-	bindings = bindings.filter(func(b): return not (b.producer == producer and b.resource == resource and b.consumer == consumer))
-	_notify()
+# Records of a shared resource on the current frame path, in execution order.
+func shared_records(shared: WeaverSharedResource) -> Array:
+	var path := frame_path()
+	var records: Array = []
+	for key in _versions:
+		var record: Dictionary = _versions[key]
+		if record.resource == shared and record.view < path.size() and path[record.view] == record.lane:
+			records.append(record)
+	records.sort_custom(func(a, b): return a.view < b.view or (a.view == b.view and a.order < b.order))
+	return records
 
-func is_bound(producer: int, resource: String, consumer: int) -> bool:
-	for b in bindings:
-		if b.producer == producer and b.resource == resource and b.consumer == consumer:
-			return true
-	return false
+func _analyze() -> void:
+	issues = []
+	_slot_issues.clear()
+	_lane_issues.clear()
+	_versions.clear()
+	if web == null:
+		return
+	issues = web.validate()
+	for issue in issues:
+		if not issue.has("node"):
+			continue
+		var lane := _lane_at(issue.view, issue.lane)
+		if lane.is_empty():
+			continue
+		var node_id := _node_at(lane, issue.node)
+		if node_id < 0 or String(issue.slot).is_empty():
+			if not _lane_issues.has(lane.id):
+				_lane_issues[lane.id] = []
+			_lane_issues[lane.id].append(issue)
+			continue
+		var key := "%d/%s" % [node_id, issue.slot]
+		var current: Dictionary = _slot_issues.get(key, {})
+		if current.is_empty() or (current.severity != "error" and issue.severity == "error"):
+			_slot_issues[key] = issue
 
-func bindings_of_consumer(consumer: int) -> Array:
-	return bindings.filter(func(b): return b.consumer == consumer)
+	# Every lane, with the matrix's frame path for the views before it.
+	var path := frame_path()
+	for vi in views.size():
+		for li in (views[vi].lanes as Array).size():
+			var lane_path := path.duplicate()
+			lane_path[vi] = li
+			for record in web.get_resource_versions(lane_path):
+				if record.view != vi or record.lane != li:
+					continue
+				var lane := _lane_at(vi, li)
+				var node_id := _node_at(lane, record.node)
+				if node_id < 0:
+					continue
+				record.node_id = node_id
+				record.order = lane_order(lane).find(node_id)
+				_versions["%d/%s" % [node_id, record.slot]] = record
+
+func _lane_at(view_index: int, lane_index: int) -> Dictionary:
+	if view_index < 0 or view_index >= views.size():
+		return {}
+	var lanes: Array = views[view_index].lanes
+	return lanes[lane_index] if lane_index >= 0 and lane_index < lanes.size() else {}
+
+# Node id of an index into the lane's weaver_nodes (as written by _write_web), -1 when it isn't a node of the model.
+func _node_at(lane: Dictionary, index: int) -> int:
+	var entries: Array = (lane.resource as WeaverSpider).weaver_nodes
+	if index < 0 or index >= entries.size() or entries[index] == null:
+		return -1
+	return _ids.get(entries[index], -1)
 
 
 #
@@ -519,11 +876,12 @@ func is_plain_effect(node_id: int) -> bool:
 	var res := node_resource(node_id)
 	return res is CompositorEffect
 
-static func resource_key(producer: int, resource: String) -> String:
-	return "%d/%s" % [producer, resource]
-
-static func resource_color(producer: int, resource: String) -> Color:
-	var h := float(absi(hash(resource_key(producer, resource))) % 997) / 997.0
+# A stable color per resource name (shared resources and lane resources with the same name differ).
+static func resource_color(res: Resource) -> Color:
+	if res == null:
+		return Color.GRAY
+	var key := ("shared:" if res is WeaverSharedResource else "lane:") + res.resource_name
+	var h := float(absi(hash(key)) % 997) / 997.0
 	return Color.from_hsv(h, 0.5, 0.9)
 
 
@@ -569,7 +927,6 @@ func _forget_lane_nodes(lane: Dictionary) -> void:
 	for column in lane.columns:
 		for id in column:
 			nodes.erase(id)
-	bindings = bindings.filter(func(b): return nodes.has(b.producer) and nodes.has(b.consumer))
 
 func _unique_node_name() -> String:
 	var taken := {}
@@ -599,8 +956,10 @@ func _set_dirty(value: bool) -> void:
 func _edited() -> void:
 	_write_web()
 	_set_dirty(true)
+	_analyze()
 	changed.emit()
 
 # A change to editor-only state (frame resources, bindings, the matrix lane).
 func _notify() -> void:
+	_analyze()
 	changed.emit()

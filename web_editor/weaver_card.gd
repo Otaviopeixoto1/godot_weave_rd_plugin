@@ -6,7 +6,7 @@ class_name WeaverCard
 # A card for one entry of a WeaverSpider (a WeaverWebNode or a plain CompositorEffect). Drag the card to move it to
 # another stage column (or lane/view). Right-click the title to rename the node. Double-click the card or use the edit
 # button to open the resource in the Inspector, the script button attaches/edits its script or changes its class (WeaverNodeScripts).
-# Drop a resource chip on it to bind the node to that resource.
+# Below the title, one WeaverSlotRow per resource slot of the node: drop resource chips on them to bind them.
 #
 
 enum DropState { NONE, VALID, INVALID }
@@ -74,38 +74,11 @@ func setup(p_canvas: WeaverCanvas, p_column: WeaverColumn, p_node_id: int) -> We
 	
 	
 	#
-	# Content
+	# Resource slots, declared by the node's script (members typed Weaver{Buffer,Image}{Read,Write,Create}).
 	#
-	# TODO: Make this the "Creates" Section. Add labels
-	var owns := HFlowContainer.new()
-	owns.add_theme_constant_override("h_separation", 4)
-	owns.add_theme_constant_override("v_separation", 4)
-	box.add_child(owns)
-	for resource in model.nodes[node_id].resources:
-		owns.add_child(WeaverChip.new().setup(canvas, self, node_id, resource))
-	
-	var add_button := WeaverStyle.small_button("+ res", "Add a frame resource (prototype: kept in memory, not saved in the web)")
-	add_button.pressed.connect(func(): model.add_resource(node_id))
-	owns.add_child(add_button)
-	
-	#
-	# TODO: ADD a "Writes" Section
-	#
-	
-	var reads := model.bindings_of_consumer(node_id)
-	if not reads.is_empty():
-		var reads_label := Label.new()
-		reads_label.text = "reads"
-		reads_label.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
-		box.add_child(reads_label)
-		var reads_box := HFlowContainer.new()
-		reads_box.add_theme_constant_override("h_separation", 4)
-		reads_box.add_theme_constant_override("v_separation", 4)
-		box.add_child(reads_box)
-		for b in reads:
-			reads_box.add_child(WeaverChip.new().setup(canvas, self, b.producer, b.resource, node_id))
-	
-	
+	for slot in model.node_slots(node_id):
+		box.add_child(WeaverSlotRow.new().setup(canvas, node_id, slot))
+
 	canvas.register_card(self)
 	return self
 
@@ -192,23 +165,13 @@ func can_accept(data: Variant) -> bool:
 	if not data is Dictionary:
 		return false
 	match data.get("kind"):
-		"weave_chip":
-			var model := canvas.model
-			var error := model.bind_error(data.producer, node_id)
-			if error.is_empty() and model.is_bound(data.producer, data.resource, node_id):
-				error = "Already bound."
-			if error.is_empty():
-				canvas.show_status("Bind %s.%s to \"%s\"" % [model.node_name(data.producer), data.resource, model.node_name(node_id)], true)
-			else:
-				canvas.show_status("Can't bind: " + error, false)
-			return error.is_empty()
+		"weave_resource":
+			canvas.show_status("Drop the resource on one of the node's slots.", false)
+			return false
 		"weave_card":
 			return column.can_accept(data)
 	return false
 
 func accept(data: Variant) -> void:
-	match data.get("kind"):
-		"weave_chip":
-			canvas.model.bind(data.producer, data.resource, node_id)
-		"weave_card":
-			column.accept(data)
+	if data.get("kind") == "weave_card":
+		column.accept(data)
