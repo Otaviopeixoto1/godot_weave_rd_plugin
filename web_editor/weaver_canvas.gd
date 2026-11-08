@@ -7,8 +7,8 @@ class_name WeaverCanvas
 # one column per stage inside each lane (WeaverSpider). Short arrows show the order: between views, between the stage
 # columns of a lane (WeaverSpider) and between the cards of a column.
 #
-# Resources (T-026): above the views, one WeaverSharedTrack per shared resource. Each lane shows its resources (drag
-# them into slots, + resource adds one) and the shared resources it provides. Hovering a chip (or a matrix row) outlines
+# Resources (T-026): above the views, one WeaverSharedTrack per shared resource. Each lane shows its resources (made by
+# its nodes' create slots; drag them into slots) and the shared resources it provides. Hovering a chip (or a matrix row) outlines
 # every chip of that resource on a transparent overlay.
 #
 
@@ -40,7 +40,6 @@ var _view_panels: Array = []
 var _view_arrows: Array = []
 
 var _hl_resource: Resource
-var _resource_dialog: WeaverResourceDialog
 
 var _picker: WeaverSlotPicker
 var _rename_dialog: WeaverRenameDialog
@@ -65,9 +64,6 @@ func _init() -> void:
 	_confirm_dialog = ConfirmationDialog.new()
 	_confirm_dialog.confirmed.connect(func(): _confirm_action.call())
 	add_child(_confirm_dialog)
-
-	_resource_dialog = WeaverResourceDialog.new()
-	add_child(_resource_dialog)
 
 	_scroll = ScrollContainer.new()
 	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -195,11 +191,6 @@ func confirm_share(res: WeaverResource, node_id: int, slot: StringName) -> void:
 		if not error.is_empty():
 			show_status(error, false)
 	_confirm(text, "Share", share, "Share %s with later views?" % res.resource_name)
-
-func open_resource_dialog(view_id: int, lane_id: int) -> void:
-	var lane := model.get_lane(view_id, lane_id)
-	_resource_dialog.open(WeaverModel.slot_name(lane.get("slot")), func(resource_name: String, kind: int):
-		model.add_lane_resource(view_id, lane_id, resource_name, kind))
 
 func rename_resource(res: Resource) -> void:
 	_rename_dialog.open("Rename resource", res.resource_name, func(new_name: String): model.rename_resource(res, new_name))
@@ -415,7 +406,7 @@ func _build_lane_resources(box: VBoxContainer, view: Dictionary, lane: Dictionar
 		var problems: Array = lane_errors.filter(func(i): return " %s" % res.resource_name in String(i.message))
 		var tooltip := "%s %s, %s.\nDrag it into a slot. Right-click to rename." % [
 				"Buffer" if res.kind == WeaverModel.BUFFER else "Image", res.resource_name,
-				"created by %s" % model.node_name(creator) if creator >= 0 else "nothing creates it yet (bind a create slot to it)"]
+				"created by %s" % model.node_name(creator) if creator >= 0 else "nothing creates it anymore (no create slot is bound to it)"]
 		for issue in problems:
 			tooltip = String(issue.message) + "\n" + tooltip
 		var chip := WeaverChip.new().setup(self, res, res.resource_name + (" v%d" % version if version > 0 else ""), WeaverChip.Look.SOLID, tooltip,
@@ -424,9 +415,6 @@ func _build_lane_resources(box: VBoxContainer, view: Dictionary, lane: Dictionar
 				"Remove the resource")
 		chip.on_context = rename_resource.bind(res)
 		tray.add_child(chip)
-	var add := WeaverStyle.small_button("+ resource", "Add a resource to this lane (a buffer or an image)")
-	add.pressed.connect(open_resource_dialog.bind(view_id, lane_id))
-	tray.add_child(add)
 
 	# Shared resources this lane's view provides.
 	var provided: Array = model.shared_resources().filter(func(sr): return model.shared_source_view(sr) == view_index)

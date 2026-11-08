@@ -41,7 +41,7 @@ func setup(p_model: WeaverModel, p_canvas: WeaverCanvas) -> WeaverMatrix:
 	_grid.add_theme_constant_override("v_separation", 4)
 	scroll_box.add_child(_grid)
 	_empty_hint = Label.new()
-	_empty_hint.text = "No resources on this frame path. Add one with + resource on a lane."
+	_empty_hint.text = "No resources on this frame path. Nodes with create slots make them."
 	_empty_hint.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 	scroll_box.add_child(_empty_hint)
 
@@ -221,7 +221,8 @@ func _open_menu(cell: Control, node_id: int, res: Resource) -> void:
 		var issue := model.slot_issue(node_id, slot_name)
 		if not issue.is_empty() and issue.severity == "error" and "expects" in String(issue.message):
 			_add_item("Rebind %s to the newest version" % slot_name, model.rebind_to_newest.bind(node_id, slot_name))
-		_add_item("Unbind %s" % slot_name, model.unbind_slot.bind(node_id, slot_name))
+		if s.access != WeaverResourceHandle.ACCESS_CREATE:
+			_add_item("Unbind %s" % slot_name, model.unbind_slot.bind(node_id, slot_name))
 	for candidate in _candidates(node_id, res):
 		var slot: Dictionary = candidate.slot
 		var slot_name: StringName = slot.name

@@ -43,6 +43,10 @@ func setup(p_canvas: WeaverCanvas, p_node_id: int, p_slot: Dictionary) -> Weaver
 	var binding := model.slot_binding(node_id, slot.name)
 	var issue := model.slot_issue(node_id, slot.name)
 	var error: bool = not issue.is_empty() and issue.severity == "error"
+	if (binding == null or binding.resource == null) and slot.access == WeaverResourceHandle.ACCESS_CREATE:
+		# The model gives every create slot its resource; this only shows until it does.
+		add_child(WeaverChip.new().setup(canvas, null, "creates a %s" % kind_name, WeaverChip.Look.DASHED, "The node creates this resource itself."))
+		return self
 	if binding == null or binding.resource == null:
 		var hint := "drop %s" % ("a buffer" if slot.type == WeaverModel.BUFFER else "an image")
 		var tooltip := "Drag a %s here: from a lane's resources or from another slot." % kind_name
@@ -57,7 +61,13 @@ func setup(p_canvas: WeaverCanvas, p_node_id: int, p_slot: Dictionary) -> Weaver
 	var look := WeaverChip.Look.SOLID if slot.access == WeaverResourceHandle.ACCESS_CREATE else WeaverChip.Look.OUTLINE
 	var tooltip: String = issue.message if not issue.is_empty() else "%s %s%s. Drag it into another slot to use it there." % [
 			ACCESS_NAMES[slot.access].capitalize(), res.resource_name, " (" + version + ")" if not version.is_empty() else ""]
-	add_child(WeaverChip.new().setup(canvas, res, text, look, tooltip, error, func(): model.unbind_slot(node_id, slot.name), "Unbind this slot"))
+	if slot.access == WeaverResourceHandle.ACCESS_CREATE:
+		# Made by the node itself: no unbinding. Right-click to rename it.
+		var chip := WeaverChip.new().setup(canvas, res, text, look, tooltip + "\nRight-click to rename it.", error)
+		chip.on_context = canvas.rename_resource.bind(res)
+		add_child(chip)
+	else:
+		add_child(WeaverChip.new().setup(canvas, res, text, look, tooltip, error, func(): model.unbind_slot(node_id, slot.name), "Unbind this slot"))
 
 	# Stale bindings (they expect a version that was written over) can be pointed at the newest one.
 	if error and "expects" in String(issue.message):

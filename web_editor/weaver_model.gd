@@ -17,6 +17,8 @@ class_name WeaverModel
 # slots (WeaverResourceBinding) and the lane resources it provides to shared resources (WeaverSharedOutput); the web has
 # the shared resources. Slots come from the node scripts (WeaverWebNode.get_resource_slots()). Errors and versions come
 # from the module (WeaverWeb.validate() and get_resource_versions()), recomputed on every change (_analyze()).
+# Every create slot makes its own lane resource: the model adds it (named after the slot) and binds it, so a create slot
+# is never assigned by hand. Removing or moving the node removes or moves what it created.
 #
 # Ids are given per resource instance and kept for the editor session.
 #
@@ -92,6 +94,10 @@ func reload() -> void:
 				view.lanes.append(_parse_lane(spider, seen))
 			views.append(view)
 
+	# Webs saved before a script got a create slot (or edited outside the plugin) get their created resources now.
+	if _ensure_created_resources():
+		_write_web()
+		_set_dirty(true)
 	_notify()
 
 func _parse_lane(spider: WeaverSpider, seen: Dictionary) -> Dictionary:
@@ -233,6 +239,7 @@ func remove_node(node_id: int) -> void:
 	if loc.is_empty():
 		return
 	var res := node_resource(node_id)
+	var made := created_resources(node_id)
 	(_column_at(loc) as Array).erase(node_id)
 	nodes.erase(node_id)
 	for spider in _all_spiders():
@@ -240,6 +247,9 @@ func remove_node(node_id: int) -> void:
 		for b in spider.bindings:
 			if b.after == res:
 				b.after = null
+	# What it created goes with it (slots still bound to it show as unbound).
+	for created in made:
+		_drop_lane_resource(created)
 	_edited()
 
 func rename_node(node_id: int, new_name: String) -> void:
@@ -324,9 +334,16 @@ func move_node(node_id: int, view_id: int, lane_id: int, stage: int, index: int)
 	var to_spider: WeaverSpider = lane.resource
 	if from_spider != to_spider:
 		var res := node_resource(node_id)
+		var made := created_resources(node_id, from_spider)
 		var moving: Array = Array(from_spider.bindings).filter(func(b): return b != null and b.node == res)
 		from_spider.bindings = Array(from_spider.bindings).filter(func(b): return not moving.has(b))
 		to_spider.bindings = Array(to_spider.bindings) + moving
+		# The resources it creates move too (renamed if the name is taken there).
+		for created in made:
+			from_spider.resources = Array(from_spider.resources).filter(func(r): return r != created)
+			from_spider.shared_outputs = Array(from_spider.shared_outputs).filter(func(o): return o != null and o.resource != created)
+			created.resource_name = _unique_name(created.resource_name, Array(to_spider.resources))
+			to_spider.resources = Array(to_spider.resources) + [created]
 	_edited()
 
 # Which lane (WeaverSpider) of a view the matrix shows. Editor state only.
@@ -484,6 +501,8 @@ func drop_action(node_id: int, slot: StringName, res: Resource) -> Dictionary:
 	var loc := locate(node_id)
 	if info.is_empty() or loc.is_empty() or res == null:
 		return _refuse("Unknown slot.")
+	if info.access == WeaverResourceHandle.ACCESS_CREATE:
+		return _refuse("A create slot makes its own resource: drag it from here into the slots that use it.")
 	if res.kind != info.type:
 		return _refuse("%s is %s slot, %s is %s." % [slot, _kind_phrase(info.type), res.resource_name, _kind_phrase(res.kind)])
 	if res is WeaverSharedResource:
@@ -693,6 +712,63 @@ func _all_spiders() -> Array:
 		for lane in view.lanes:
 			spiders.append(lane.resource)
 	return spiders
+
+
+#
+# Created resources: every create slot makes its own lane resource
+#
+
+# The lane resources a node's create slots are bound to (in p_spider, the node's lane by default).
+func created_resources(node_id: int, p_spider: WeaverSpider = null) -> Array:
+	var spider := p_spider
+	if spider == null:
+		var loc := locate(node_id)
+		if loc.is_empty():
+			return []
+		spider = views[loc.view].lanes[loc.lane].resource
+	var res := node_resource(node_id)
+	var made: Array = []
+	for s in node_slots(node_id):
+		if s.access != WeaverResourceHandle.ACCESS_CREATE:
+			continue
+		var b := spider.find_binding(res, s.name)
+		if b != null and b.resource is WeaverResource:
+			made.append(b.resource)
+	return made
+
+# Gives every create slot without a lane resource one, named after the slot and bound to it. Returns true when it
+# added any (the web changed).
+func _ensure_created_resources() -> bool:
+	var added := false
+	for view in views:
+		for lane in view.lanes:
+			var spider: WeaverSpider = lane.resource
+			for id in lane_order(lane):
+				var res := node_resource(id)
+				for s in node_slots(id):
+					if s.access != WeaverResourceHandle.ACCESS_CREATE:
+						continue
+					var b := spider.find_binding(res, s.name)
+					if b != null and b.resource is WeaverResource and Array(spider.resources).has(b.resource):
+						continue
+					var made := WeaverResource.new()
+					made.resource_name = _unique_name(s.name, Array(spider.resources))
+					made.kind = s.type
+					spider.resources = Array(spider.resources) + [made]
+					var binding := WeaverResourceBinding.new()
+					binding.node = res
+					binding.slot = s.name
+					binding.resource = made
+					spider.bindings = Array(spider.bindings).filter(func(x): return x != null and not (x.node == res and x.slot == s.name)) + [binding]
+					added = true
+	return added
+
+# Removes a lane resource and everything bound to it, without notifying (callers do).
+func _drop_lane_resource(res: WeaverResource) -> void:
+	for spider in _all_spiders():
+		spider.resources = Array(spider.resources).filter(func(r): return r != res)
+		spider.bindings = Array(spider.bindings).filter(func(b): return b != null and b.resource != res)
+		spider.shared_outputs = Array(spider.shared_outputs).filter(func(o): return o != null and o.resource != res)
 
 
 #
@@ -954,6 +1030,7 @@ func _set_dirty(value: bool) -> void:
 
 # A change to the web itself: written back to the resources and marks the web as unsaved.
 func _edited() -> void:
+	_ensure_created_resources()
 	_write_web()
 	_set_dirty(true)
 	_analyze()
