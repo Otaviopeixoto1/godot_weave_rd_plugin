@@ -193,6 +193,46 @@ func remove_lane(view_id: int, lane_id: int) -> void:
 	view.path_lane = clampi(view.path_lane, 0, maxi((view.lanes as Array).size() - 1, 0))
 	_edited()
 
+# Moves a view in the render order. `index` is an insertion point in the current order (0..views.size(): before the
+# view at that index, or at the end), like a drop between two views. Views render in array order, so this can change
+# which views may read a shared resource; validation reports what breaks.
+func move_view(view_id: int, index: int) -> void:
+	var view := get_view(view_id)
+	if view.is_empty():
+		return
+	var from := views.find(view)
+	var to := insertion_to_index(from, index, views.size())
+	if to == from:
+		return
+	views.remove_at(from)
+	views.insert(to, view)
+	_edited()
+
+# Moves a lane (WeaverSpider) inside its view. `index` is an insertion point like in move_view(). The matrix keeps
+# showing the same lane.
+func move_lane(view_id: int, lane_id: int, index: int) -> void:
+	var view := get_view(view_id)
+	var lane := get_lane(view_id, lane_id)
+	if lane.is_empty():
+		return
+	var lanes: Array = view.lanes
+	var from := lanes.find(lane)
+	var to := insertion_to_index(from, index, lanes.size())
+	if to == from:
+		return
+	var path_lane: Dictionary = lanes[clampi(view.path_lane, 0, lanes.size() - 1)]
+	lanes.remove_at(from)
+	lanes.insert(to, lane)
+	view.path_lane = lanes.find(path_lane)
+	_edited()
+
+# Where an item at `from` ends up when dropped at insertion point `index` (the item is taken out first).
+static func insertion_to_index(from: int, index: int, count: int) -> int:
+	var to := clampi(index, 0, count)
+	if to > from:
+		to -= 1
+	return clampi(to, 0, count - 1)
+
 func set_view_slot(view_id: int, slot: WeaverViewSlot) -> void:
 	var view := get_view(view_id)
 	if view.is_empty() or slot == null:

@@ -7,7 +7,7 @@ class_name WeaverCanvas
 # one column per stage inside each lane (WeaverSpider). Short arrows show the order: between views, between the stage
 # columns of a lane (WeaverSpider) and between the cards of a column.
 #
-# Resources (T-026): above the views, one WeaverSharedTrack per shared resource. Each lane shows its resources (made by
+# Resources: above the views, one WeaverSharedTrack per shared resource. Each lane shows its resources (made by
 # its nodes' create slots; drag them into slots) and the shared resources it provides. Hovering a chip (or a matrix row) outlines
 # every chip of that resource on a transparent overlay.
 #
@@ -38,6 +38,11 @@ var _slot_rows: Array = []
 var _tracks: Array = []
 var _view_panels: Array = []
 var _view_arrows: Array = []
+var _lane_panels := {} # view id -> Array of lane panels, top to bottom
+
+# View / lane drags: the catcher is shown while one is dragged. _drop_marker is in catcher coordinates (empty: none).
+var _drop_catcher: Control
+var _drop_marker := Rect2()
 
 var _hl_resource: Resource
 
@@ -86,6 +91,14 @@ func _init() -> void:
 	_overlay.draw.connect(_draw_overlay)
 	add_child(_overlay)
 
+	_drop_catcher = Control.new()
+	_drop_catcher.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_drop_catcher.mouse_filter = Control.MOUSE_FILTER_STOP
+	_drop_catcher.visible = false
+	_drop_catcher.draw.connect(_draw_drop_marker)
+	_drop_catcher.set_drag_forwarding(Callable(), _catcher_can_drop, _catcher_drop)
+	add_child(_drop_catcher)
+
 	_scroll.get_h_scroll_bar().value_changed.connect(func(_v): _overlay.queue_redraw())
 	_scroll.get_v_scroll_bar().value_changed.connect(func(_v): _overlay.queue_redraw())
 
@@ -97,6 +110,8 @@ func _notification(what: int) -> void:
 		for row in _slot_rows:
 			if is_instance_valid(row):
 				row.set_drop_hint(null)
+		_drop_catcher.visible = false
+		_set_drop_marker(Rect2())
 		show_status("", true)
 
 
@@ -107,6 +122,7 @@ func rebuild() -> void:
 	_tracks.clear()
 	_view_panels.clear()
 	_view_arrows.clear()
+	_lane_panels.clear()
 	_saved_webs = WeaverSlotLibrary.collect_web_slots()
 	for box in [_views_box, _tracks_box]:
 		for child in box.get_children():
@@ -299,6 +315,8 @@ func _build_view(view: Dictionary, view_index: int) -> Control:
 	var title := WeaverSlotHeader.new().setup(WeaverSlotLibrary.KIND_VIEW, view.slot, model.view_slot_error(view_id), _webs_using(view.slot), "%d · " % view_index)
 	title.change_requested.connect(func(): pick_view_slot(title, view_id))
 	title.rename_requested.connect(func(): rename_slot(view.slot))
+	title.set_drag_forwarding(func(_at): return _start_structure_drag({ "kind": "weave_view", "view": view_id }, "view %s" % WeaverModel.slot_name(view.slot)), Callable(), Callable())
+	title.tooltip_text += "\nDrag it between two views to change the render order."
 	header.add_child(title)
 	
 	var add_lane := WeaverStyle.small_button("+ Lane", "Add a lane (WeaverSpider): pick or create its camera slot")
@@ -337,6 +355,8 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 	var title := WeaverSlotHeader.new().setup(WeaverSlotLibrary.KIND_CAMERA, lane.slot, model.lane_slot_error(view_id, lane_id), _webs_using(lane.slot))
 	title.change_requested.connect(func(): pick_lane_slot(title, view_id, lane_id))
 	title.rename_requested.connect(func(): rename_slot(lane.slot))
+	title.set_drag_forwarding(func(_at): return _start_structure_drag({ "kind": "weave_lane", "view": view_id, "lane": lane_id }, "lane %s" % WeaverModel.slot_name(lane.slot)), Callable(), Callable())
+	title.tooltip_text += "\nDrag it between two lanes of this view to reorder them."
 	header.add_child(title)
 	if in_path:
 		var tag := Label.new()
@@ -360,7 +380,130 @@ func _build_lane(view: Dictionary, lane_index: int) -> Control:
 		if stage > 0:
 			columns.add_child(WeaverArrow.new().setup(WeaverArrow.Direction.RIGHT, "Runs after the stage on the left.", COLUMN_ARROW_Y))
 		columns.add_child(WeaverColumn.new().setup(self, view.id, lane.id, stage))
+	if not _lane_panels.has(view_id):
+		_lane_panels[view_id] = []
+	(_lane_panels[view_id] as Array).append(panel)
 	return panel
+
+
+#
+# Reordering views and lanes (T-029)
+#
+
+# Drag data of a view or lane header. Shows the drop catcher until the drag ends.
+func _start_structure_drag(data: Dictionary, what: String) -> Variant:
+	var preview := Label.new()
+	preview.text = "Move " + what
+	set_drag_preview(preview)
+	_drop_catcher.visible = true
+	_drop_catcher.move_to_front()
+	return data
+
+# What dropping a dragged view or lane at a global position does: { ok, reason, index (insertion point), marker (global
+# Rect2, empty when nothing would move) }. Used by the drop catcher and by the tests.
+func structure_drop(data: Variant, global_pos: Vector2) -> Dictionary:
+	var result := { "ok": false, "reason": "", "index": -1, "marker": Rect2() }
+	if not data is Dictionary or not data.get("kind") in ["weave_view", "weave_lane"] or model == null:
+		return result
+	var view_id: int = data.view
+	var view := model.get_view(view_id)
+	if view.is_empty():
+		result.reason = "Unknown view."
+		return result
+
+	if data.kind == "weave_view":
+		var from := model.views.find(view)
+		var index := 0
+		for panel in _view_panels:
+			if global_pos.x > (panel as Control).get_global_rect().get_center().x:
+				index += 1
+		result.index = index
+		if index == from or index == from + 1:
+			result.reason = "Drop it between two other views to change the render order."
+			return result
+		var to := WeaverModel.insertion_to_index(from, index, model.views.size())
+		result.ok = true
+		var order: Array = model.views.duplicate()
+		order.remove_at(from)
+		order.insert(to, view)
+		result.reason = "Move view %s to position %d: it renders %s." % [WeaverModel.slot_name(view.slot), to,
+				"first" if to == 0 else "after view %s" % WeaverModel.slot_name(order[to - 1].slot)]
+		result.marker = _gap_marker(_view_panels, index, true)
+		return result
+
+	# A lane: only between the lanes of its own view.
+	var lane := model.get_lane(view_id, data.lane)
+	if lane.is_empty():
+		result.reason = "Unknown lane."
+		return result
+	var over_view := _view_at(global_pos.x)
+	if over_view >= 0 and over_view != model.views.find(view):
+		result.reason = "Lanes belong to their view: lane %s can only move inside view %s." % [WeaverModel.slot_name(lane.slot), WeaverModel.slot_name(view.slot)]
+		return result
+	var panels: Array = _lane_panels.get(view_id, [])
+	var lanes: Array = view.lanes
+	var from := lanes.find(lane)
+	var index := 0
+	for panel in panels:
+		if global_pos.y > (panel as Control).get_global_rect().get_center().y:
+			index += 1
+	result.index = index
+	if index == from or index == from + 1:
+		result.reason = "Drop it between two other lanes of view %s to reorder them." % WeaverModel.slot_name(view.slot)
+		return result
+	var to := WeaverModel.insertion_to_index(from, index, lanes.size())
+	result.ok = true
+	result.reason = "Move lane %s to position %d in view %s." % [WeaverModel.slot_name(lane.slot), to, WeaverModel.slot_name(view.slot)]
+	result.marker = _gap_marker(panels, index, false)
+	return result
+
+# Applies a drop computed by structure_drop().
+func apply_structure_drop(data: Dictionary, global_pos: Vector2) -> bool:
+	var drop := structure_drop(data, global_pos)
+	if not drop.ok:
+		return false
+	if data.kind == "weave_view":
+		model.move_view(data.view, drop.index)
+	else:
+		model.move_lane(data.view, data.lane, drop.index)
+	return true
+
+# Index of the view panel under a global x (-1 when none).
+func _view_at(global_x: float) -> int:
+	for i in _view_panels.size():
+		var rect := (_view_panels[i] as Control).get_global_rect()
+		if global_x >= rect.position.x and global_x <= rect.end.x:
+			return i
+	return -1
+
+# A thin bar in the gap before panels[index] (or after the last one): vertical between views, horizontal between lanes.
+func _gap_marker(panels: Array, index: int, vertical: bool) -> Rect2:
+	if panels.is_empty():
+		return Rect2()
+	var before := index < panels.size()
+	var rect := (panels[index if before else panels.size() - 1] as Control).get_global_rect()
+	if vertical:
+		var x := rect.position.x - 4.0 if before else rect.end.x + 1.0
+		return Rect2(x, rect.position.y, 3.0, rect.size.y)
+	var y := rect.position.y - 4.0 if before else rect.end.y + 1.0
+	return Rect2(rect.position.x, y, rect.size.x, 3.0)
+
+func _catcher_can_drop(_at_position: Vector2, data: Variant) -> bool:
+	var drop := structure_drop(data, get_global_mouse_position())
+	show_status(drop.reason, drop.ok)
+	_set_drop_marker(drop.marker)
+	return drop.ok
+
+func _catcher_drop(_at_position: Vector2, data: Variant) -> void:
+	apply_structure_drop(data, get_global_mouse_position())
+
+func _set_drop_marker(global_rect: Rect2) -> void:
+	_drop_marker = Rect2() if global_rect.has_area() == false else _drop_catcher.get_global_transform().affine_inverse() * global_rect
+	_drop_catcher.queue_redraw()
+
+func _draw_drop_marker() -> void:
+	if _drop_marker.has_area():
+		_drop_catcher.draw_rect(_drop_marker, WeaverStyle.VALID)
 
 
 #
