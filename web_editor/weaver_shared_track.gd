@@ -42,7 +42,7 @@ func setup(p_canvas: WeaverCanvas, p_shared: WeaverSharedResource) -> WeaverShar
 			"Remove", model.remove_shared.bind(shared))
 	if _source < 0:
 		if not _cells.is_empty():
-			_cells[0].add_child(WeaverChip.new().setup(canvas, shared, "◆ %s · not provided" % shared.resource_name, WeaverChip.Look.SOLID,
+			_cells[0].add_child(WeaverChip.new().setup(canvas, shared, "◆ %s · not provided" % WeaverModel.display_name(shared), WeaverChip.Look.SOLID,
 					"No view provides this shared resource. Make a lane provide one of its resources to it.", true, remove, "Remove the shared resource"))
 		return self
 
@@ -64,7 +64,7 @@ func setup(p_canvas: WeaverCanvas, p_shared: WeaverSharedResource) -> WeaverShar
 		lines.append("! " + String(issue.message))
 
 	var provided_version := _provided_version(model, path)
-	var text := "◆ %s · provided v%d · %d/%d lanes" % [shared.resource_name, provided_version, providing, lanes.size()]
+	var text := "◆ %s · provided v%d · %d/%d lanes" % [WeaverModel.display_name(shared), provided_version, providing, lanes.size()]
 	_cells[_source].add_child(WeaverChip.new().setup(canvas, shared, text, WeaverChip.Look.SOLID,
 			"Shared resource: every view after view %d can read or write it.\n%s" % [_source, "\n".join(lines)], providing < lanes.size() or _broken,
 			remove, "Remove the shared resource"))
@@ -84,7 +84,7 @@ func setup(p_canvas: WeaverCanvas, p_shared: WeaverSharedResource) -> WeaverShar
 			var version := "v%d→v%d" % [record.version_in, record.version_out] if write else "v%d" % record.version_out
 			var issue := model.slot_issue(record.node_id, record.slot)
 			var node_id: int = record.node_id
-			var chip := WeaverChip.new().setup(canvas, shared, "%s %s %s · %s ▸" % ["W" if write else "R", shared.resource_name, version, model.node_name(node_id)],
+			var chip := WeaverChip.new().setup(canvas, shared, "%s %s %s · %s ▸" % ["W" if write else "R", WeaverModel.display_name(shared), version, model.node_name(node_id)],
 					WeaverChip.Look.OUTLINE, (String(issue.message) + "\n" if not issue.is_empty() else "") + "Click to show %s." % model.node_name(node_id),
 					not issue.is_empty() and issue.severity == "error")
 			chip.on_click = func(): canvas.focus_node(node_id)

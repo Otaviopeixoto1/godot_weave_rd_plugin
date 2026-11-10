@@ -185,7 +185,7 @@ func confirm_share(res: WeaverResource, node_id: int, slot: StringName) -> void:
 			res.resource_name, view_index, WeaverModel.slot_name(owner.lane.slot), model.node_name(node_id), slot]
 	if not others.is_empty():
 		text += "\nThe other lanes of view %d (%s) must provide %s too." % [view_index, ", ".join(others),
-				"a buffer" if res.kind == WeaverModel.BUFFER else "an image"]
+				WeaverModel.kind_phrase(res.kind, res.shape)]
 	var share := func():
 		var error := model.share_resource(res, node_id, slot)
 		if not error.is_empty():
@@ -405,11 +405,11 @@ func _build_lane_resources(box: VBoxContainer, view: Dictionary, lane: Dictionar
 		var creator := model.creator_of(res)
 		var problems: Array = lane_errors.filter(func(i): return " %s" % res.resource_name in String(i.message))
 		var tooltip := "%s %s, %s.\nDrag it into a slot. Right-click to rename." % [
-				"Buffer" if res.kind == WeaverModel.BUFFER else "Image", res.resource_name,
+				WeaverModel.kind_name(res.kind, res.shape).capitalize(), res.resource_name,
 				"created by %s" % model.node_name(creator) if creator >= 0 else "nothing creates it anymore (no create slot is bound to it)"]
 		for issue in problems:
 			tooltip = String(issue.message) + "\n" + tooltip
-		var chip := WeaverChip.new().setup(self, res, res.resource_name + (" v%d" % version if version > 0 else ""), WeaverChip.Look.SOLID, tooltip,
+		var chip := WeaverChip.new().setup(self, res, WeaverModel.display_name(res) + (" v%d" % version if version > 0 else ""), WeaverChip.Look.SOLID, tooltip,
 				problems.any(func(i): return i.severity == "error"),
 				func(): _confirm("Remove the resource \"%s\" and its bindings from the lane?" % res.resource_name, "Remove", model.remove_lane_resource.bind(res)),
 				"Remove the resource")
@@ -430,11 +430,11 @@ func _build_lane_resources(box: VBoxContainer, view: Dictionary, lane: Dictionar
 			var source: WeaverResource = model.provided_by(view_id, lane_id, shared)
 			var chip: WeaverChip
 			if source != null:
-				chip = WeaverChip.new().setup(self, shared, "◆ %s ← %s v%d" % [shared.resource_name, source.resource_name, model.lane_resource_version(source)],
+				chip = WeaverChip.new().setup(self, shared, "◆ %s ← %s v%d" % [WeaverModel.display_name(shared), WeaverModel.display_name(source), model.lane_resource_version(source)],
 						WeaverChip.Look.SOLID, "This lane provides %s as %s to the later views. Drop another resource of the lane here to change it." % [
 						source.resource_name, shared.resource_name], false, model.unprovide.bind(view_id, lane_id, shared), "Stop providing it")
 			else:
-				chip = WeaverChip.new().setup(self, shared, "needs: ◆ %s" % shared.resource_name, WeaverChip.Look.DASHED,
+				chip = WeaverChip.new().setup(self, shared, "needs: ◆ %s" % WeaverModel.display_name(shared), WeaverChip.Look.DASHED,
 						"Another lane of this view provides %s, so this one must too. Drop one of this lane's resources here." % shared.resource_name, true)
 			chip.on_can_drop = func(data) -> String:
 				if not data is Dictionary or data.get("kind") != "weave_resource" or not data.resource is WeaverResource:
@@ -442,8 +442,8 @@ func _build_lane_resources(box: VBoxContainer, view: Dictionary, lane: Dictionar
 				var res: WeaverResource = data.resource
 				if not model.lane_resources(view_id, lane_id).has(res):
 					return "Only a resource of this lane can be provided by it."
-				if res.kind != shared.kind:
-					return "%s is %s." % [shared.resource_name, "a buffer" if shared.kind == WeaverModel.BUFFER else "an image"]
+				if res.kind != shared.kind or res.shape != shared.shape:
+					return "%s is %s." % [shared.resource_name, WeaverModel.kind_phrase(shared.kind, shared.shape)]
 				return ""
 			chip.on_drop = func(data): model.provide(view_id, lane_id, shared, data.resource)
 			row.add_child(chip)

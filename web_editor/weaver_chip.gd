@@ -77,7 +77,7 @@ func _get_drag_data(_at_position: Vector2) -> Variant:
 	if resource == null:
 		return null
 	var preview := Label.new()
-	preview.text = resource.resource_name
+	preview.text = WeaverModel.display_name(resource)
 	set_drag_preview(preview)
 	canvas.begin_resource_drag(resource)
 	return { "kind": "weave_resource", "resource": resource }

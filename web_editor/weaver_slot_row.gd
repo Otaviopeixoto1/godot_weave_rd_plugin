@@ -24,11 +24,12 @@ func setup(p_canvas: WeaverCanvas, p_node_id: int, p_slot: Dictionary) -> Weaver
 	add_theme_constant_override("separation", 4)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	var model := canvas.model
-	var kind_name := "buffer" if slot.type == WeaverModel.BUFFER else "image"
+	var kind_name := WeaverModel.kind_name(slot.type, slot.shape)
+	var kind_phrase := WeaverModel.kind_phrase(slot.type, slot.shape)
 
 	var access := Label.new()
 	access.text = ACCESS_LETTERS[slot.access]
-	access.tooltip_text = "%s %s (%s)" % [ACCESS_NAMES[slot.access].capitalize(), "a buffer" if slot.type == WeaverModel.BUFFER else "an image", slot.handle_class]
+	access.tooltip_text = "%s %s (%s)" % [ACCESS_NAMES[slot.access].capitalize(), kind_phrase, slot.handle_class]
 	access.mouse_filter = Control.MOUSE_FILTER_PASS
 	access.add_theme_color_override("font_color", WeaverStyle.MUTED_TEXT)
 	access.custom_minimum_size.x = 12
@@ -45,11 +46,11 @@ func setup(p_canvas: WeaverCanvas, p_node_id: int, p_slot: Dictionary) -> Weaver
 	var error: bool = not issue.is_empty() and issue.severity == "error"
 	if (binding == null or binding.resource == null) and slot.access == WeaverResourceHandle.ACCESS_CREATE:
 		# The model gives every create slot its resource; this only shows until it does.
-		add_child(WeaverChip.new().setup(canvas, null, "creates a %s" % kind_name, WeaverChip.Look.DASHED, "The node creates this resource itself."))
+		add_child(WeaverChip.new().setup(canvas, null, "creates %s" % kind_phrase, WeaverChip.Look.DASHED, "The node creates this resource itself."))
 		return self
 	if binding == null or binding.resource == null:
-		var hint := "drop %s" % ("a buffer" if slot.type == WeaverModel.BUFFER else "an image")
-		var tooltip := "Drag a %s here: from a lane's resources or from another slot." % kind_name
+		var hint := "drop %s" % kind_phrase
+		var tooltip := "Drag %s here: from a lane's resources or from another slot." % kind_phrase
 		if not issue.is_empty():
 			tooltip = issue.message + "\n" + tooltip
 		add_child(WeaverChip.new().setup(canvas, null, hint, WeaverChip.Look.DASHED, tooltip, error))
@@ -57,7 +58,7 @@ func setup(p_canvas: WeaverCanvas, p_node_id: int, p_slot: Dictionary) -> Weaver
 
 	var res: Resource = binding.resource
 	var version := model.slot_version_text(node_id, slot.name)
-	var text := ("◆ " if res is WeaverSharedResource else "") + res.resource_name + (" " + version if not version.is_empty() else "")
+	var text := ("◆ " if res is WeaverSharedResource else "") + WeaverModel.display_name(res) + (" " + version if not version.is_empty() else "")
 	var look := WeaverChip.Look.SOLID if slot.access == WeaverResourceHandle.ACCESS_CREATE else WeaverChip.Look.OUTLINE
 	var tooltip: String = issue.message if not issue.is_empty() else "%s %s%s. Drag it into another slot to use it there." % [
 			ACCESS_NAMES[slot.access].capitalize(), res.resource_name, " (" + version + ")" if not version.is_empty() else ""]

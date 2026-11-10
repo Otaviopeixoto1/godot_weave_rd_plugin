@@ -417,8 +417,22 @@ func _slot_file_error(slot: Resource) -> String:
 #
 const BUFFER := WeaverResourceHandle.TYPE_BUFFER
 const IMAGE := WeaverResourceHandle.TYPE_IMAGE
+const SINGLE := WeaverResourceHandle.SHAPE_SINGLE
+const LIST := WeaverResourceHandle.SHAPE_LIST
 
-# Slots of a node: Array of { name, access, kind, handle_class } (none for plain CompositorEffects).
+# "buffer", "image list"...
+static func kind_name(kind: int, shape: int = SINGLE) -> String:
+	return ("buffer" if kind == BUFFER else "image") + (" list" if shape == LIST else "")
+
+# "a buffer", "an image list"...
+static func kind_phrase(kind: int, shape: int = SINGLE) -> String:
+	return ("a " if kind == BUFFER else "an ") + kind_name(kind, shape)
+
+# A resource's name as the panel shows it: lists end with [].
+static func display_name(res: Resource) -> String:
+	return res.resource_name + ("[]" if res.shape == LIST else "")
+
+# Slots of a node: Array of { name, access, type, shape, handle_class } (none for plain CompositorEffects).
 func node_slots(node_id: int) -> Array:
 	var res := node_resource(node_id)
 	return res.get_resource_slots() if res is WeaverWebNode else []
@@ -440,13 +454,14 @@ func shared_resources() -> Array:
 		return []
 	return Array(web.shared_resources).filter(func(r): return r != null)
 
-func add_lane_resource(view_id: int, lane_id: int, resource_name: String, kind: int) -> WeaverResource:
+func add_lane_resource(view_id: int, lane_id: int, resource_name: String, kind: int, shape: int = SINGLE) -> WeaverResource:
 	var lane := get_lane(view_id, lane_id)
 	if lane.is_empty():
 		return null
 	var res := WeaverResource.new()
 	res.resource_name = _unique_name(resource_name, lane_resources(view_id, lane_id))
 	res.kind = kind
+	res.shape = shape
 	var spider: WeaverSpider = lane.resource
 	spider.resources = Array(spider.resources) + [res]
 	_edited()
@@ -503,8 +518,8 @@ func drop_action(node_id: int, slot: StringName, res: Resource) -> Dictionary:
 		return _refuse("Unknown slot.")
 	if info.access == WeaverResourceHandle.ACCESS_CREATE:
 		return _refuse("A create slot makes its own resource: drag it from here into the slots that use it.")
-	if res.kind != info.type:
-		return _refuse("%s is %s slot, %s is %s." % [slot, _kind_phrase(info.type), res.resource_name, _kind_phrase(res.kind)])
+	if res.kind != info.type or res.shape != info.shape:
+		return _refuse("%s is %s slot, %s is %s." % [slot, kind_phrase(info.type, info.shape), res.resource_name, kind_phrase(res.kind, res.shape)])
 	if res is WeaverSharedResource:
 		if info.access == WeaverResourceHandle.ACCESS_CREATE:
 			return _refuse("A create slot makes a resource of its lane: it can't take a shared resource.")
@@ -572,6 +587,7 @@ func share_resource(res: WeaverResource, node_id: int, slot: StringName) -> Stri
 	var shared := WeaverSharedResource.new()
 	shared.resource_name = _unique_name(res.resource_name, shared_resources())
 	shared.kind = res.kind
+	shared.shape = res.shape
 	web.shared_resources = Array(web.shared_resources) + [shared]
 	_set_output(owner.lane.resource, shared, res)
 	var error := bind_slot(node_id, slot, shared)
@@ -586,8 +602,8 @@ func provide(view_id: int, lane_id: int, shared: WeaverSharedResource, res: Weav
 		return "Unknown lane or resource."
 	if not Array((lane.resource as WeaverSpider).resources).has(res):
 		return "%s is not a resource of this lane." % res.resource_name
-	if res.kind != shared.kind:
-		return "%s is %s, %s is %s." % [res.resource_name, _kind_phrase(res.kind), shared.resource_name, _kind_phrase(shared.kind)]
+	if res.kind != shared.kind or res.shape != shared.shape:
+		return "%s is %s, %s is %s." % [res.resource_name, kind_phrase(res.kind, res.shape), shared.resource_name, kind_phrase(shared.kind, shared.shape)]
 	_set_output(lane.resource, shared, res)
 	_edited()
 	return ""
@@ -691,9 +707,6 @@ func _set_output(spider: WeaverSpider, shared: WeaverSharedResource, res: Weaver
 func _refuse(reason: String) -> Dictionary:
 	return { "action": "refuse", "reason": reason }
 
-static func _kind_phrase(kind: int) -> String:
-	return "a buffer" if kind == WeaverResourceHandle.TYPE_BUFFER else "an image"
-
 func _unique_name(base: String, taken_from: Array) -> String:
 	var base_name := base.strip_edges() if not base.strip_edges().is_empty() else "resource"
 	var taken := {}
@@ -736,8 +749,8 @@ func created_resources(node_id: int, p_spider: WeaverSpider = null) -> Array:
 			made.append(b.resource)
 	return made
 
-# Gives every create slot without a lane resource one, named after the slot and bound to it. Returns true when it
-# added any (the web changed).
+# Gives every create slot without a lane resource one, named after the slot and bound to it, and keeps the type and
+# shape of the ones they have in sync with the slot. Returns true when the web changed.
 func _ensure_created_resources() -> bool:
 	var added := false
 	for view in views:
@@ -750,10 +763,16 @@ func _ensure_created_resources() -> bool:
 						continue
 					var b := spider.find_binding(res, s.name)
 					if b != null and b.resource is WeaverResource and Array(spider.resources).has(b.resource):
+						# The slot owns its resource: it follows the slot when the script changes its type or shape.
+						if b.resource.kind != s.type or b.resource.shape != s.shape:
+							b.resource.kind = s.type
+							b.resource.shape = s.shape
+							added = true
 						continue
 					var made := WeaverResource.new()
 					made.resource_name = _unique_name(s.name, Array(spider.resources))
 					made.kind = s.type
+					made.shape = s.shape
 					spider.resources = Array(spider.resources) + [made]
 					var binding := WeaverResourceBinding.new()
 					binding.node = res

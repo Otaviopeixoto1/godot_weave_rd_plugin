@@ -78,10 +78,10 @@ func rebuild() -> void:
 		var view: Dictionary = model.views[vi]
 		var lane: Dictionary = view.lanes[lanes[vi]]
 		for res in model.lane_resources(view.id, lane.id):
-			_add_row(path, res, "V%d · %s" % [vi, res.resource_name])
+			_add_row(path, res, "V%d · %s" % [vi, WeaverModel.display_name(res)])
 			rows += 1
 	for shared in model.shared_resources():
-		_add_row(path, shared, "◆ " + shared.resource_name)
+		_add_row(path, shared, "◆ " + WeaverModel.display_name(shared))
 		rows += 1
 	_empty_hint.visible = rows == 0
 
@@ -132,7 +132,7 @@ func _add_row(path: Array, res: Resource, text: String) -> void:
 	var row_label := Label.new()
 	row_label.text = text
 	row_label.mouse_filter = Control.MOUSE_FILTER_PASS
-	row_label.tooltip_text = "%s %s" % ["Shared resource" if res is WeaverSharedResource else "Lane resource", res.resource_name]
+	row_label.tooltip_text = "%s %s (%s)" % ["Shared resource" if res is WeaverSharedResource else "Lane resource", res.resource_name, WeaverModel.kind_name(res.kind, res.shape)]
 	row_label.mouse_entered.connect(func(): canvas.set_highlight(res))
 	row_label.mouse_exited.connect(func(): canvas.set_highlight(null))
 	_grid.add_child(row_label)
